@@ -1,10 +1,14 @@
-# UWAGA: skrypty w krokach "run" tylko ASCII - Windows PowerShell 5.1 czyta je w kodowaniu ANSI.
+# Codzienna aktualizacja lustra notowan (Yahoo Finance) i kursow walut (NBP).
+# Wynik trafia na galaz "data", skad aplikacja (index.html) pobiera go przez raw.githubusercontent.com.
+#
+# UWAGA: skrypty w krokach "run" tylko ASCII - Windows PowerShell 5.1 czyta je w kodowaniu ANSI
+# (polskie znaki psuja skladnie). Skrypty .ps1 w repozytorium zapisujemy w UTF-8 z BOM.
 name: Aktualizacja notowan
 
 on:
   schedule:
-    - cron: '30 22 * * 1-5'   # pn-pt 22:30 UTC, po zamknieciu sesji w USA
-  workflow_dispatch:
+    - cron: '30 22 * * 1-5'   # pn-pt 22:30 UTC, po zamknieciu sesji w USA (Europa i Japonia wczesniej)
+  workflow_dispatch:          # reczne uruchomienie: Actions -> Aktualizacja notowan -> Run workflow
     inputs:
       limit:
         description: 'Tylko pierwsze N symboli (0 = wszystkie)'
@@ -14,25 +18,28 @@ on:
         default: 'config/universe.csv'
 
 permissions:
-  contents: write
-  actions: write
+  contents: write   # push na galaz "data"
+  actions: write    # ponowne wlaczenie harmonogramu (ostatni krok)
 
+# Nigdy dwa przebiegi naraz - oba nadpisywalyby galaz "data"
 concurrency:
   group: update-data
   cancel-in-progress: false
 
 jobs:
   update:
-    runs-on: windows-latest
+    runs-on: windows-latest   # Windows PowerShell 5.1 - ten sam co na komputerze, na ktorym testujemy skrypt
     timeout-minutes: 350
     steps:
       - name: Pobierz kod
         uses: actions/checkout@v4
 
+      # Przyrostowa aktualizacja wymaga poprzednich danych: pobieramy galaz "data" do katalogu out.
+      # Przy pierwszym uruchomieniu galezi jeszcze nie ma - zaczynamy od pustego katalogu.
       - name: Pobierz poprzednie dane (galaz data)
         shell: powershell
         run: |
-          $ErrorActionPreference = 'Continue'   # git pisze komunikaty na stderr
+          $ErrorActionPreference = 'Continue'   # git pisze komunikaty na stderr - to nie sa bledy
           $repo = "https://github.com/${{ github.repository }}.git"
           git ls-remote --exit-code --heads $repo data *> $null
           if ($LASTEXITCODE -eq 0) {
@@ -40,30 +47,36 @@ jobs:
             if ($LASTEXITCODE -ne 0) { Write-Error 'Clone of branch data failed'; exit 1 }
           } else { Write-Host 'Branch data does not exist yet - first full download.' }
           if (-not (Test-Path out)) { New-Item -ItemType Directory out | Out-Null }
+          # historia galezi nie jest potrzebna - kolejny krok tworzy nowe repozytorium
           if (Test-Path out\.git) { Remove-Item -Recurse -Force out\.git }
           exit 0
 
+      # Pobranie notowan i kursow (szczegoly w komentarzach tools/update-data.ps1).
+      # Blad pojedynczego symbolu nie przerywa kroku - lista bledow trafia do out/status.json.
       - name: Aktualizuj notowania i kursy walut
         shell: powershell
         run: ./tools/update-data.ps1 -Universe "${{ github.event.inputs.universe || 'config/universe.csv' }}" -Out out -Limit ${{ github.event.inputs.limit || 0 }}
 
+      # Galaz "data" zawsze ma jeden commit (force push nowego repozytorium) - dzieki temu
+      # repozytorium nie rosnie o codzienne kopie kilkudziesieciu MB danych.
       - name: Opublikuj galaz data (jeden commit, bez historii)
         shell: powershell
         run: |
           $ErrorActionPreference = 'Continue'
           Set-Location out
-          "* -text" | Out-File -Encoding ascii .gitattributes
+          "* -text" | Out-File -Encoding ascii .gitattributes   # bez konwersji konca linii w plikach CSV
           git init -q
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -q -b data
           git add -A
+          if ($LASTEXITCODE -ne 0) { Write-Error 'git add failed (check file names above)'; exit 1 }
           git commit -q -m "Data $(Get-Date -Format 'yyyy-MM-dd HH:mm') UTC"
           git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
           if ($LASTEXITCODE -ne 0) { exit 1 }
 
-      # GitHub wylacza zaplanowane workflow po 60 dniach bez aktywnosci - ponowne
-      # wlaczenie przez API resetuje ten licznik.
+      # GitHub wylacza zaplanowane workflow po 60 dniach bez aktywnosci w repozytorium - ponowne
+      # wlaczenie przez API resetuje ten licznik. Wykonywane zawsze, takze po bledzie wczesniejszych krokow.
       - name: Podtrzymaj harmonogram
         if: always()
         shell: powershell

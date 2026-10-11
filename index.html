@@ -44,6 +44,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Historyczny portfel</title>
 <style>
+/* ---------- Tokeny motywu: jasny (domyślny) ---------- */
+/* Wszystkie kolory przez zmienne CSS – wykresy na canvas odczytują je przez getComputedStyle (Charts.css). */
 :root {
   color-scheme: light;
   --bg: #f4f4f2; --surface: #fcfcfb; --surface-2: #f0efec; --border: #dedcd7;
@@ -55,6 +57,8 @@
   --ok-bg: #e6f4e6; --ok-bd: #0ca30c;
   --shadow: 0 1px 2px rgba(0,0,0,.06);
 }
+/* ---------- Tokeny motywu: ciemny ---------- */
+/* Tryb „auto”: ciemny wg systemu, chyba że użytkownik wymusił jasny (data-theme="light"). */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
@@ -68,6 +72,7 @@
     --shadow: none;
   }
 }
+/* Ciemny wymuszony ręcznie (przycisk „Motyw”) – te same wartości co wyżej. */
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #36352f;
@@ -79,11 +84,13 @@
   --ok-bg: #173117; --ok-bd: #0ca30c;
   --shadow: none;
 }
+/* ---------- Style bazowe i kontrolki formularzy ---------- */
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--text);
   font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  /* cyfry o stałej szerokości – kolumny liczb się wyrównują */
   font-variant-numeric: tabular-nums;
 }
 a { color: var(--accent); }
@@ -99,11 +106,13 @@ button {
 }
 button:hover { border-color: var(--text-3); }
 button:disabled { opacity: .55; cursor: default; }
+/* Warianty przycisków */
 button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
 button.link { background: none; border: none; padding: 2px 4px; color: var(--accent); }
 button.danger { color: var(--loss); }
 button.small { padding: 2px 8px; font-size: 12px; }
 
+/* ---------- Nagłówek aplikacji ---------- */
 header.app {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
@@ -112,9 +121,11 @@ header.app h1 { font-size: 18px; margin: 0; }
 header.app .sub { color: var(--text-2); font-size: 12px; flex: 1; }
 header.app .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 
+/* ---------- Układ: panel boczny + treść (na wąskim ekranie jedna kolumna) ---------- */
 .layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 16px; padding: 16px; }
 @media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
 
+/* ---------- Karty i klasy pomocnicze tekstu ---------- */
 .card {
   background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
   padding: 14px; box-shadow: var(--shadow); margin-bottom: 16px; min-width: 0;
@@ -124,6 +135,7 @@ header.app .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: cen
 .muted { color: var(--text-2); }
 .small-text { font-size: 12px; }
 
+/* ---------- Lista portfeli (panel boczny) ---------- */
 #portfolioList { list-style: none; margin: 0 0 10px; padding: 0; }
 #portfolioList li button {
   width: 100%; text-align: left; background: none; border: 1px solid transparent;
@@ -132,6 +144,7 @@ header.app .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: cen
 #portfolioList li button.active { background: var(--surface-2); border-color: var(--border); font-weight: 600; }
 .btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
 
+/* ---------- Status synchronizacji (kropka: ok / błąd / w toku) i ustawienia adresu ---------- */
 .sync { font-size: 12px; margin: 8px 0; display: flex; gap: 6px; align-items: flex-start; }
 .sync .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex: none; background: var(--text-3); }
 .sync.ok .dot { background: var(--ok-bd); }
@@ -140,24 +153,29 @@ header.app .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: cen
 details.settings summary { cursor: pointer; font-size: 12px; color: var(--text-2); margin-top: 8px; }
 details.settings input { width: 100%; margin: 6px 0; font-size: 12px; }
 
+/* ---------- Strefa upuszczania plików CSV (podświetlana, gdy body ma klasę .dragging) ---------- */
 .dropzone {
   border: 2px dashed var(--border); border-radius: 8px; padding: 12px; text-align: center;
   color: var(--text-2); margin: 8px 0; font-size: 13px;
 }
 body.dragging .dropzone { border-color: var(--accent); background: var(--surface-2); }
 
+/* ---------- Pasek narzędzi (data „stan na”, benchmark) ---------- */
 .toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
 .toolbar label, .form-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
 
+/* ---------- Kafelki KPI (podsumowanie) ---------- */
 .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
 .kpi { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
 .kpi .label { font-size: 12px; color: var(--text-2); }
 .kpi .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
 .kpi .sub { font-size: 12px; color: var(--text-2); }
 
+/* Kolor zysku / straty */
 .gain { color: var(--gain); }
 .loss { color: var(--loss); }
 
+/* ---------- Chipy źródeł danych: serwer / pamięć / plik / brak ---------- */
 .status-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .status-chip {
   display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border);
@@ -169,6 +187,7 @@ body.dragging .dropzone { border-color: var(--accent); background: var(--surface
 .status-chip.file .dot { background: var(--s2); }
 .status-chip.none .dot { background: transparent; border: 1.5px solid var(--err-bd); }
 
+/* ---------- Komunikaty (ostrzeżenie / błąd / sukces) ---------- */
 .notice { border-radius: 8px; padding: 10px 12px; margin: 8px 0; border-left: 4px solid var(--border); background: var(--surface-2); }
 .notice.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
 .notice.err { background: var(--err-bg); border-color: var(--err-bd); }
@@ -176,11 +195,13 @@ body.dragging .dropzone { border-color: var(--accent); background: var(--surface
 .notice ul { margin: 6px 0; padding-left: 20px; }
 .hidden { display: none !important; }
 
+/* ---------- Formularz transakcji ---------- */
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; }
 .form-grid .wide { grid-column: span 2; }
 @media (max-width: 500px) { .form-grid .wide { grid-column: span 1; } }
 .hint { font-size: 12px; color: var(--text-2); min-height: 18px; margin-top: 6px; }
 
+/* ---------- Tabele (pozycje, transakcje); liczby wyrównane do prawej ---------- */
 .table-wrap { overflow-x: auto; }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
@@ -192,6 +213,7 @@ th.sortable:hover { color: var(--text); }
 th .arrow { font-size: 10px; margin-left: 3px; }
 td .name { color: var(--text-2); font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 tr.closed td { color: var(--text-3); }
+/* transakcje po dacie „stan na” są wyszarzone */
 tr.future td { opacity: .5; }
 tfoot td { font-weight: 600; border-bottom: none; }
 .tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
@@ -199,6 +221,7 @@ tfoot td { font-weight: 600; border-bottom: none; }
 .tag.sell { color: var(--loss); }
 .warn-icon { color: var(--warn-bd); cursor: help; }
 
+/* ---------- Wykresy, legenda i tooltip ---------- */
 .charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
 @media (max-width: 500px) { .charts { grid-template-columns: minmax(0, 1fr); } }
 .chart-wrap { position: relative; }
@@ -206,6 +229,7 @@ tfoot td { font-weight: 600; border-bottom: none; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
 .legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
 .legend .sw.dash { background: none !important; border-top: 2px dashed; height: 0; }
+/* Tooltip pozycjonowany absolutnie względem .chart-wrap; pointer-events: none, by nie przechwytywał myszy */
 .tooltip {
   position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
   border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15);
@@ -215,6 +239,7 @@ tfoot td { font-weight: 600; border-bottom: none; }
 .tooltip .row span:first-child { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
 .tooltip .sw { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
 
+/* ---------- Stopka, toast i wyniki testów ---------- */
 footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; text-align: center; }
 #toast {
   position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: 90vw;
@@ -227,6 +252,7 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
 </head>
 <body>
 
+<!-- ===== Nagłówek: tytuł, eksport/import JSON, przełącznik motywu ===== -->
 <header class="app">
   <h1>Historyczny portfel</h1>
   <span class="sub">GPW · Europa · USA · Japonia · wycena w PLN</span>
@@ -240,7 +266,9 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
 </header>
 
 <div class="layout">
+  <!-- ===== Panel boczny ===== -->
   <aside>
+    <!-- Lista portfeli i akcje na portfelach -->
     <div class="card">
       <h2>Portfele</h2>
       <ul id="portfolioList"></ul>
@@ -251,6 +279,7 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
       </div>
     </div>
 
+    <!-- Notowania: status synchronizacji, diagnostyka, tryb awaryjny CSV, adres serwera danych -->
     <div class="card">
       <h2>Notowania</h2>
       <div id="syncStatus" class="sync"><span class="dot"></span><span>—</span></div>
@@ -273,7 +302,9 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
     </div>
   </aside>
 
+  <!-- ===== Treść główna ===== -->
   <main>
+    <!-- Pasek narzędzi: data wyceny („stan na”) i wybór benchmarku -->
     <div class="card">
       <div class="toolbar">
         <label>Stan na dzień
@@ -287,17 +318,20 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
       </div>
     </div>
 
+    <!-- Podsumowanie: kafelki KPI (renderKpis) -->
     <div class="card">
       <h2>Podsumowanie <span class="muted small-text" id="portfolioName"></span></h2>
       <div class="kpis" id="kpis"></div>
     </div>
 
+    <!-- Źródła danych: chipy statusu notowań/kursów i panel ręcznego wczytania CSV -->
     <div class="card">
       <h2>Źródła danych</h2>
       <div class="status-list" id="statusList"></div>
       <div id="manualPanel" class="notice warn hidden"></div>
     </div>
 
+    <!-- Formularz dodawania / edycji transakcji (walidacja w JS, stąd novalidate) -->
     <div class="card">
       <h2 id="txFormTitle">Nowa transakcja</h2>
       <form id="txForm" autocomplete="off" novalidate>
@@ -320,6 +354,7 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
           <label><span>Prowizja <span id="lblFeeCcy">(PLN)</span></span>
             <input type="number" id="fFee" min="0" step="any" inputmode="decimal" value="0">
           </label>
+          <!-- Pole kursu widoczne tylko dla walorów w walucie obcej -->
           <label id="fxWrap" class="hidden" title="Puste = kurs średni NBP z dnia transakcji (lub ostatni wcześniejszy)">Kurs waluty (PLN)
             <input type="number" id="fFx" min="0" step="any" inputmode="decimal" placeholder="NBP">
           </label>
@@ -334,11 +369,13 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
       </form>
     </div>
 
+    <!-- Tabela pozycji (sortowalna, renderPositions) -->
     <div class="card">
       <h2>Pozycje <span class="spacer"></span><button id="btnExportCsv" class="small">Eksport CSV</button></h2>
       <div class="table-wrap"><table id="posTable"></table></div>
     </div>
 
+    <!-- Wykresy: wartość vs kapitał oraz TWR vs benchmark (canvas + tooltip) -->
     <div class="charts">
       <div class="card">
         <h2>Wartość portfela a zainwestowany kapitał <span class="muted small-text">(PLN)</span></h2>
@@ -352,11 +389,13 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
       </div>
     </div>
 
+    <!-- Lista transakcji z akcjami Edytuj / Usuń -->
     <div class="card">
       <h2>Transakcje</h2>
       <div class="table-wrap"><table id="txTable"></table></div>
     </div>
 
+    <!-- Wyniki testów – karta pokazywana tylko dla index.html#selftest -->
     <div class="card hidden" id="selftestCard">
       <h2>Wyniki testów</h2>
       <div id="selftestOut"></div>
@@ -364,6 +403,7 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
   </main>
 </div>
 
+<!-- ===== Stopka i toast (krótkie powiadomienia) ===== -->
 <footer class="app">
   Dane z publicznych źródeł: Yahoo Finance (ceny zamknięcia, skorygowane o splity) i NBP (kursy średnie), pobierane automatycznie na GitHub;
   tryb awaryjny – pliki CSV (np. Stooq). Bez dywidend i podatków. Aplikacja ma charakter edukacyjny i nie stanowi porady inwestycyjnej.
@@ -379,6 +419,7 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
 var Config = {
   APP_ID: 'gpw-portfolio',
   VERSION: 2,
+  // Klucze localStorage (stan portfeli, cache notowań/kursów/manifestu; v1 – stary cache do migracji)
   STORAGE_STATE: 'gpwPortfolio.state.v1',
   STORAGE_QUOTES: 'gpwPortfolio.quotes.v2',
   STORAGE_QUOTES_V1: 'gpwPortfolio.quotes.v1',
@@ -390,12 +431,13 @@ var Config = {
   SYNC_INTERVAL_MS: 60 * 60 * 1000,      // sprawdzanie nowych danych co godzinę
   MANIFEST_MAX_AGE_MS: 60 * 60 * 1000,   // przy otwarciu: odśwież manifest starszy niż godzina
   CACHE_MARGIN_DAYS: 400,                // cache notowań z lustra: od (najwcześniejsza transakcja − margines)
-  PRICE_DEVIATION_WARN: 0.15,
+  PRICE_DEVIATION_WARN: 0.15,            // ostrzeżenie, gdy cena transakcji odbiega o >15% od zamknięcia z tego dnia
   LOCALE: 'pl-PL',
   BASE_CURRENCY: 'PLN',
+  // Benchmarki do wyboru: [symbol Yahoo, etykieta]
   BENCHMARKS: [
     ['ETFBW20TR.WA', 'WIG20TR (ETF Beta, od 2019)'],
-    ['WIG.WA', 'WIG (od 2019)'],
+    ['WIG.WA', 'WIG (tylko z pliku CSV Stooq)'],   // Yahoo ma daty bez cen – brak w lustrze
     ['WIG20.WA', 'WIG20 (tylko z pliku CSV Stooq)'],
     ['^GSPC', 'S&P 500'],
     ['^NDX', 'Nasdaq-100'],
@@ -407,13 +449,17 @@ var Config = {
   // Waluta notowań wg sufiksu symbolu Yahoo (gdy brak manifestu, np. import CSV offline)
   SUFFIX_CCY: { WA: 'PLN', DE: 'EUR', F: 'EUR', PA: 'EUR', AS: 'EUR', MC: 'EUR', MI: 'EUR', BR: 'EUR', LS: 'EUR',
     VI: 'EUR', HE: 'EUR', IR: 'EUR', L: 'GBp', SW: 'CHF', ST: 'SEK', CO: 'DKK', OL: 'NOK', PR: 'CZK', BD: 'HUF', T: 'JPY' },
+  // Waluta indeksów (symbole z ^ nie mają sufiksu giełdy)
   INDEX_CCY: { '^GSPC': 'USD', '^NDX': 'USD', '^DJI': 'USD', '^N225': 'JPY', '^GDAXI': 'EUR', '^FCHI': 'EUR',
     '^FTSE': 'GBP', '^STOXX50E': 'EUR', '^AEX': 'EUR', '^IBEX': 'EUR', '^SSMI': 'CHF', '^OMX': 'SEK', '^ATX': 'EUR', '^BFX': 'EUR' },
   // Mapowanie Stooq ↔ Yahoo (tryb awaryjny)
+  // STOOQ_SUFFIX: sufiks rynku Stooq → sufiks Yahoo; STOOQ_INDEX: nazwa indeksu w Stooq → symbol Yahoo
   STOOQ_SUFFIX: { us: '', de: '.DE', uk: '.L', jp: '.T', hu: '.BD' },
   STOOQ_INDEX: { 'wig20': 'WIG20.WA', 'wig': 'WIG.WA', 'mwig40': 'MWIG40.WA', 'swig80': 'SWIG80.WA',
     '^spx': '^GSPC', '^ndx': '^NDX', '^dji': '^DJI', '^nkx': '^N225', '^dax': '^GDAXI' },
+  /** Link do ręcznego pobrania CSV dziennego ze Stooq (otwierany przez użytkownika, nie przez fetch). */
   stooqCsvUrl: function (stooqSym) { return 'https://stooq.pl/q/d/l/?s=' + encodeURIComponent(stooqSym) + '&i=d'; },
+  /** URL API NBP: kursy średnie (tabela A) waluty code w zakresie dat from–to (ISO). */
   nbpUrl: function (code, from, to) {
     return 'https://api.nbp.pl/api/exchangerates/rates/a/' + encodeURIComponent(code.toLowerCase()) + '/' + from + '/' + to + '/?format=json';
   },
@@ -433,26 +479,41 @@ var Config = {
  * Util
  * ========================================================================== */
 var Util = {
+  /** Dzisiejsza data lokalna jako 'RRRR-MM-DD' (nie UTC – po północy w Polsce ma być już nowy dzień). */
   todayISO: function () {
     var d = new Date();
     return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   },
+  /** Czy s to poprawna data 'RRRR-MM-DD'. */
   isISODate: function (s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Util.dateMs(s)); },
+  // Arytmetyka dat w UTC – brak przesunięć przy zmianie czasu letniego/zimowego
   dateMs: function (iso) { return Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)); },
   daysBetween: function (a, b) { return (Util.dateMs(b) - Util.dateMs(a)) / 86400000; },
   addDays: function (iso, n) { return new Date(Util.dateMs(iso) + n * 86400000).toISOString().slice(0, 10); },
+  /** Krótki unikalny identyfikator (czas + losowy sufiks, base36). */
   uid: function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); },
+  // normSym: symbol w postaci kanonicznej (wielkie litery); isSym: dozwolony format symbolu Yahoo (opcjonalne ^ dla indeksów);
+  // symFile: nazwa pliku w lustrze (^ zamieniane na _, bo ^ nie nadaje się do URL/nazw plików)
   normSym: function (t) { return String(t || '').trim().toUpperCase(); },
   isSym: function (s) { return /^\^?[A-Z0-9][A-Z0-9.\-=&]{0,24}$/.test(s); },
-  symFile: function (sym) { return Util.normSym(sym).replace(/\^/g, '_') + '.csv'; },
+  // Nazwa pliku w lustrze: ^ → _, a nazwy zarezerwowane w Windows (CON, PRN, AUX, NUL, COMn, LPTn)
+  // dostają przedrostek ~ (CON.DE → ~CON.DE.csv) – ta sama reguła co SymFile w tools/update-data.ps1
+  symFile: function (sym) {
+    var f = Util.normSym(sym).replace(/\^/g, '_');
+    if (/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/.test(f)) f = '~' + f;
+    return f + '.csv';
+  },
   /** Waluta notowań → { code: kod NBP, factor } (GBp = pensy → GBP/100). */
   ccyInfo: function (c) {
     if (!c) return { code: 'PLN', factor: 1 };
+    // Notowania w jednostkach podzielnych (pensy, centy) – kurs NBP waluty głównej × 0,01
     if (c === 'GBp' || c === 'GBX') return { code: 'GBP', factor: 0.01 };
     if (c === 'ZAc') return { code: 'ZAR', factor: 0.01 };
     if (c === 'ILA') return { code: 'ILS', factor: 0.01 };
     return { code: c.toUpperCase(), factor: 1 };
   },
+  /** Zgadywana waluta notowań z symbolu (indeks → tabela, sufiks giełdy → tabela, bez sufiksu → USA).
+   *  null, gdy nie da się ustalić. */
   guessCurrency: function (sym) {
     sym = Util.normSym(sym);
     if (Config.INDEX_CCY[sym]) return Config.INDEX_CCY[sym];
@@ -467,19 +528,23 @@ var Util = {
  * ========================================================================== */
 var Storage = {
   available: false,
+  /** Sprawdza próbnym zapisem, czy localStorage działa (może rzucać w Firefoksie na file:// lub w trybie prywatnym). */
   init: function () {
     try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); Storage.available = true; }
     catch (e) { Storage.available = false; }
     return Storage.available;
   },
+  /** Odczyt wartości JSON (null przy braku lub błędzie). */
   get: function (key) {
     if (!Storage.available) return null;
     try { var v = localStorage.getItem(key); return v == null ? null : JSON.parse(v); } catch (e) { return null; }
   },
+  /** Zapis wartości jako JSON; false np. po przekroczeniu limitu miejsca (QuotaExceededError). */
   set: function (key, value) {
     if (!Storage.available) return false;
     try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; }
   },
+  /** Usunięcie klucza (błędy ignorowane). */
   remove: function (key) { if (Storage.available) try { localStorage.removeItem(key); } catch (e) { /* brak */ } }
 };
 
@@ -496,18 +561,24 @@ var DataSource = {
   dataUrl: Config.DEFAULT_DATA_URL,
 
   /* ---------- parser CSV ---------- */
+  /** Usuwa polskie znaki diakrytyczne (do porównywania nagłówków CSV); ł/Ł nie rozkładają się w NFD, stąd osobna zamiana. */
   stripDiacritics: function (s) {
     return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L');
   },
+  /** Liczba z tekstu w formacie PL lub EN ("1 234,56", "1,234.56", "99,5"); NaN, gdy niepoprawna. */
   parseNumber: function (s) {
     if (s == null) return NaN;
+    // usuń cudzysłowy oraz spacje (także twarde) używane jako separator tysięcy
     s = String(s).trim().replace(/^"|"$/g, '').replace(/[\s\u00a0]/g, '');
     if (s === '') return NaN;
+    // Gdy są oba separatory, separatorem dziesiętnym jest ten, który występuje jako ostatni;
+    // sam przecinek traktujemy jako dziesiętny (format polski).
     var lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
     if (lc >= 0 && ld >= 0) { if (lc > ld) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/,/g, ''); }
     else if (lc >= 0) s = s.replace(',', '.');
     return /^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(s) ? parseFloat(s) : NaN;
   },
+  /** Data z tekstu → 'RRRR-MM-DD' albo null. Obsługiwane: RRRR-MM-DD, RRRRMMDD, RRRR.MM.DD, DD.MM.RRRR (też z / i -). */
   parseDate: function (s) {
     s = String(s || '').trim().replace(/^"|"$/g, '');
     var m;
@@ -517,6 +588,7 @@ var DataSource = {
     if ((m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/))) return DataSource._mk(m[3], m[2], m[1]);
     return null;
   },
+  /** Składa datę ISO i odrzuca nieistniejące dni (np. 31.02) – Date by je „przewinął” na następny miesiąc. */
   _mk: function (y, m, d) {
     var iso = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
     var dt = new Date(Util.dateMs(iso));
@@ -526,6 +598,7 @@ var DataSource = {
   /** Zwraca { rows: [[iso, close]], skipped } albo rzuca Error z komunikatem po polsku. */
   parseCSV: function (text) {
     text = String(text == null ? '' : text).replace(/^\uFEFF/, '');
+    // Rozpoznanie typowych „nie-CSV”: strona HTML (np. weryfikacja Stooq) albo komunikat o limicie
     var head = text.slice(0, 600).toLowerCase();
     if (/<!doctype|<html|<script/.test(head)) throw new Error('To strona HTML, a nie plik CSV (np. weryfikacja przeglądarki Stooq).');
     if (/przekroczony dzienny limit|exceeded the daily hits limit/.test(head)) throw new Error('Stooq: przekroczony dzienny limit pobrań.');
@@ -533,8 +606,10 @@ var DataSource = {
     if (!lines.length) throw new Error('Plik jest pusty.');
     if (lines.length === 1 && /brak danych|no data/i.test(lines[0])) throw new Error('Źródło zwróciło „Brak danych” – sprawdź symbol.');
     var first = lines[0];
+    // Separator kolumn wg pierwszego wiersza: średnik, potem tabulator, domyślnie przecinek
     var sep = first.split(';').length > 1 ? ';' : (first.split('\t').length > 1 ? '\t' : ',');
     var split = function (l) { return l.split(sep).map(function (c) { return c.trim().replace(/^"|"$/g, ''); }); };
+    // Nagłówek znormalizowany: bez diakrytyków, małe litery, bez <> (format Stooq "<DATE>")
     var header = split(first).map(function (h) { return DataSource.stripDiacritics(h).toLowerCase().replace(/[<>]/g, ''); });
     var dateIdx = -1, closeIdx = -1, start = 1;
     header.forEach(function (h, i) {
@@ -542,9 +617,11 @@ var DataSource = {
       if (closeIdx < 0 && (h === 'zamkniecie' || h === 'close' || h === 'kurs' || h === 'zamk' || h === 'mid')) closeIdx = i;
     });
     if (dateIdx < 0 || closeIdx < 0) {
+      // Brak nagłówka: jeśli 1. kolumna to data, przyjmij układ OHLC (zamknięcie w 5. kolumnie) lub ostatnią kolumnę
       if (DataSource.parseDate(split(first)[0])) { dateIdx = 0; closeIdx = header.length >= 5 ? 4 : header.length - 1; start = 0; }
       else throw new Error('Nie rozpoznano kolumn – wymagane „Data/Date” i „Zamkniecie/Close”.');
     }
+    // Mapa data → cena: usuwa duplikaty (ostatni wygrywa), wiersze błędne liczone jako pominięte
     var map = {}, skipped = 0;
     for (var i = start; i < lines.length; i++) {
       var c = split(lines[i]), d = DataSource.parseDate(c[dateIdx]), v = DataSource.parseNumber(c[closeIdx]);
@@ -558,17 +635,20 @@ var DataSource = {
   /** Symbol Yahoo z nazwy pliku: Stooq "pkn_d.csv" → PKN.WA, "aapl_us_d.csv" → AAPL, "vod_uk_d.csv" → VOD.L;
    *  pliki z lustra "PKN.WA.csv" → PKN.WA, "_GSPC.csv" → ^GSPC. */
   symbolFromFilename: function (name) {
+    // Odetnij ścieżkę, rozszerzenie i dopisek przeglądarki przy duplikatach pobrań, np. " (1)"
     var base = String(name || '').replace(/^.*[\\\/]/, '').replace(/\.(csv|txt)$/i, '').replace(/\s*\(\d+\)\s*$/, '').trim();
     if (!base) return null;
     var m = base.match(/^(.+?)_d$/i);
     if (m) {   // konwencja Stooq
       var s = m[1].toLowerCase().replace(/_/g, '.');
+      // indeks → stała mapa; "xxx.us/.de/.uk…" → sufiks Yahoo; sam ticker bez rynku → spółka z GPW (.WA)
       if (Config.STOOQ_INDEX[s]) return Config.STOOQ_INDEX[s];
       var parts = s.match(/^(.+)\.([a-z]{2})$/);
       if (parts && Config.STOOQ_SUFFIX.hasOwnProperty(parts[2])) return (parts[1] + Config.STOOQ_SUFFIX[parts[2]]).toUpperCase();
       return /^[a-z0-9]+$/.test(s) ? s.toUpperCase() + '.WA' : null;
     }
-    var sym = Util.normSym(base.replace(/^_/, '^'));
+    // Konwencja lustra: nazwa pliku = symbol, wiodące _ oznacza ^ (indeks), wiodące ~ – nazwę zarezerwowaną w Windows
+    var sym = Util.normSym(base.replace(/^~/, '').replace(/^_/, '^'));
     return Util.isSym(sym) ? sym : null;
   },
   /** Symbol Stooq dla linku awaryjnego (null, gdy Stooq nie ma odpowiednika). */
@@ -577,21 +657,25 @@ var DataSource = {
     for (var k in Config.STOOQ_INDEX) if (Config.STOOQ_INDEX[k] === sym) return k;
     var m = sym.match(/^([A-Z0-9\-]+)(?:\.([A-Z]{1,2}))?$/);
     if (!m) return null;
+    // Odwrotne mapowanie sufiksu Yahoo → Stooq (GPW bez sufiksu, USA = brak sufiksu w Yahoo); inne rynki – brak
     var map = { WA: '', '': '.us', DE: '.de', L: '.uk', T: '.jp', BD: '.hu' };
     var suf = m[2] || '';
     return map.hasOwnProperty(suf) ? (m[1] + map[suf]).toLowerCase() : null;
   },
 
   /* ---------- metadane walorów ---------- */
+  /** Waluta notowań: z manifestu, a gdy brak – zgadywana z symbolu. */
   currencyOf: function (sym) {
     sym = Util.normSym(sym);
     var s = DataSource.symbols[sym];
     return (s && s.c) || Util.guessCurrency(sym);
   },
+  /** Nazwa waloru z manifestu ('' gdy nieznana). */
   nameOf: function (sym) { var s = DataSource.symbols[Util.normSym(sym)]; return s ? s.n : ''; },
   /** Dopasowuje wpisany tekst do symbolu: dokładny symbol, sam ticker GPW (PKN → PKN.WA), nazwa. */
   resolveSymbol: function (text) {
     var raw = String(text || '').trim();
+    // Tekst może pochodzić z podpowiedzi w formie "SYMBOL – nazwa" – bierzemy część przed myślnikiem
     var s = Util.normSym(raw.split(/\s+[—–-]\s+/)[0]);
     if (!s) return '';
     if (DataSource.symbols[s] || DataSource.quotes[s]) return s;
@@ -602,13 +686,16 @@ var DataSource = {
   },
 
   /* ---------- cache ---------- */
+  /** Kompaktowy zapis wierszy do localStorage: "RRRRMMDD:cena|..." (znacznie mniej miejsca niż JSON tablic). */
   packRows: function (rows) { return rows.map(function (r) { return r[0].replace(/-/g, '') + ':' + r[1]; }).join('|'); },
+  /** Odwrotność packRows; pomija uszkodzone wpisy. */
   unpackRows: function (s) {
     return String(s || '').split('|').map(function (p) {
       var a = p.split(':');
       return [a[0].slice(0, 4) + '-' + a[0].slice(4, 6) + '-' + a[0].slice(6, 8), parseFloat(a[1])];
     }).filter(function (r) { return isFinite(r[1]) && r[1] > 0; });
   },
+  /** Wczytuje z localStorage manifest, notowania (session: 'cache') i kursy walut; migruje cache z wersji 1. */
   loadCache: function () {
     var m = Storage.get(Config.STORAGE_MANIFEST);
     if (m && m.manifest) DataSource.applyManifest(m.manifest, m.at, true);
@@ -641,6 +728,8 @@ var DataSource = {
         var q = store[k];
         if (!q.rows || !q.rows.length) return;
         var rows = q.rows, tr = false;
+        // Przycinamy tylko dane z sieci (pliki użytkownika trzymamy w całości): odrzucamy wiersze sprzed cutoff,
+        // ale zawsze zostaje co najmniej ostatni wiersz. Flaga tr zapamiętuje, że historia jest niepełna.
         if (q.origin !== 'file' && cutoff) {
           var i = 0; while (i < rows.length - 1 && rows[i][0] < cutoff) i++;
           if (i > 0) { rows = rows.slice(i); tr = true; }
@@ -653,33 +742,41 @@ var DataSource = {
     var b = Storage.set(Config.STORAGE_FX, pack(DataSource.fx));
     return a && b;
   },
+  /** Zapisuje w pamięci notowania symbolu z danego źródła ('mirror' | 'file'). */
   setQuotes: function (sym, rows, origin) {
     sym = Util.normSym(sym);
     DataSource.quotes[sym] = { rows: rows, origin: origin, fetchedAt: new Date().toISOString(), session: origin };
   },
+  /** Wiersze [[iso, close]] symbolu albo null, gdy brak notowań. */
   getRows: function (sym) {
     var q = DataSource.quotes[Util.normSym(sym)];
     return q && q.rows && q.rows.length ? q.rows : null;
   },
 
   /* ---------- sieć ---------- */
+  /** fetch z limitem czasu (AbortController) i bez ciasteczek. */
   fetchWithTimeout: function (url, ms) {
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, ms || Config.FETCH_TIMEOUT_MS);
     return fetch(url, { signal: ctrl ? ctrl.signal : undefined, credentials: 'omit' })
       .finally(function () { clearTimeout(timer); });
   },
+  /** Czytelny komunikat błędu sieci. fetch nie odróżnia CORS od braku sieci – oba dają TypeError. */
   describeFetchError: function (e) {
     if (e && e.name === 'AbortError') return 'przekroczono limit czasu (10 s)';
     if (e && e.name === 'TypeError') return 'brak połączenia (sieć, proxy firmowe lub blokada CORS)';
     return (e && e.message) || String(e);
   },
+  /** Pobiera tekst spod URL; rzuca Error z komunikatem po polsku (404, HTTP, sieć/timeout). */
   getText: function (url) {
     return DataSource.fetchWithTimeout(url).then(function (r) {
       if (!r.ok) throw new Error(r.status === 404 ? 'brak pliku na serwerze (404)' : 'HTTP ' + r.status);
       return r.text();
     }).catch(function (e) { throw new Error(e.name === 'TypeError' || e.name === 'AbortError' ? DataSource.describeFetchError(e) : e.message); });
   },
+  /** Buduje indeks symboli z manifestu. Wiersze manifestu to tablice; kolejność kolumn podaje m.fields
+   *  (gdy brak – domyślny układ), dzięki czemu workflow może dodawać kolumny bez psucia starszych wersji.
+   *  Skróty w indeksie: n – nazwa, m – rynek, t – typ, c – waluta, f/l – pierwsza/ostatnia data, p – ostatnie zamknięcie. */
   applyManifest: function (m, at, fromCache) {
     var idx = {}, f = m.fields || [];
     var col = function (name, def) { var i = f.indexOf(name); return i >= 0 ? i : def; };
@@ -690,6 +787,7 @@ var DataSource = {
     DataSource.manifest = m; DataSource.manifestAt = at || new Date().toISOString(); DataSource.symbols = idx;
     if (!fromCache) Storage.set(Config.STORAGE_MANIFEST, { at: DataSource.manifestAt, manifest: m });
   },
+  /** Pobiera manifest z lustra (parametr t omija cache przeglądarki/CDN) i zapisuje go w cache. */
   loadManifest: function () {
     return DataSource.getText(DataSource.dataUrl + 'index.json?t=' + Date.now()).then(function (text) {
       var m = JSON.parse(text);
@@ -704,9 +802,11 @@ var DataSource = {
     var info = DataSource.symbols[sym], q = DataSource.quotes[sym];
     if (!info || !DataSource.manifest) return Promise.resolve(false);
     var has = q && q.rows && q.rows.length;
+    // stale: lustro ma nowszą datę niż posiadana; tooShort: cache przycięty, a potrzebujemy starszych danych, które lustro ma
     var stale = !has || q.rows[q.rows.length - 1][0] < info.l;
     var tooShort = has && q.origin !== 'file' && needFrom && q.rows[0][0] > needFrom && info.f < q.rows[0][0];
     if (!stale && !tooShort) return Promise.resolve(false);
+    // ?v=<data generacji manifestu> – nowy URL po każdej aktualizacji lustra, więc stary plik nie przyjdzie z cache CDN
     return DataSource.getText(DataSource.dataUrl + 'q/' + encodeURIComponent(Util.symFile(sym)) + '?v=' + encodeURIComponent(DataSource.manifest.generated))
       .then(function (text) {
         var p = DataSource.parseCSV(text);
@@ -719,6 +819,7 @@ var DataSource = {
     if (code === 'PLN') return Promise.resolve(false);
     var cur = DataSource.fx[code], has = cur && cur.rows && cur.rows.length;
     var lastHave = has ? cur.rows[cur.rows.length - 1][0] : null;
+    // mInfo = [pierwsza data, ostatnia data] kursu w lustrze; pobieramy, gdy brak danych, są nieaktualne lub za krótkie
     var mInfo = DataSource.manifest && DataSource.manifest.fx && DataSource.manifest.fx[code];
     var needMirror = mInfo && (!has || lastHave < mInfo[1] || (needFrom && cur.rows[0][0] > needFrom && mInfo[0] < cur.rows[0][0]));
     if (needMirror) {
@@ -726,13 +827,17 @@ var DataSource = {
         .then(function (text) { DataSource.fx[code] = { rows: DataSource.parseCSV(text).rows, origin: 'mirror', fetchedAt: new Date().toISOString(), session: 'mirror' }; return true; })
         .catch(function () { return DataSource.ensureFxNbp(code, needFrom); });
     }
+    // Lustro nie zna tej waluty (lub manifest niedostępny) → bezpośrednio NBP
     if (!mInfo) return DataSource.ensureFxNbp(code, needFrom);
     return Promise.resolve(false);
   },
+  /** Zapas: kursy prosto z API NBP. Dociąga tylko brakujący zakres (z 7-dniowym zakładem) i scala z posiadanymi.
+   *  Zwraca Promise<boolean> – czy dane się zmieniły. */
   ensureFxNbp: function (code, needFrom) {
     var cur = DataSource.fx[code], has = cur && cur.rows && cur.rows.length, today = Util.todayISO();
     var from = needFrom || Util.addDays(today, -400);
-    if (from < '2002-01-02') from = '2002-01-02';
+    if (from < '2002-01-02') from = '2002-01-02';   // API NBP ma dane od 2002 r.
+    // Dane wystarczająco stare i świeże (≤ 3 dni – weekend) → nic nie pobieraj; starsze mamy → pobierz tylko końcówkę
     if (has && cur.rows[0][0] <= from && Util.daysBetween(cur.rows[cur.rows.length - 1][0], today) <= 3) return Promise.resolve(false);
     if (has && cur.rows[0][0] <= from) from = Util.addDays(cur.rows[cur.rows.length - 1][0], -7);
     return DataSource.fetchNbpRates(code, from, today).then(function (rows) {
@@ -746,6 +851,7 @@ var DataSource = {
   /** Kursy średnie NBP (tabela A), okna po 93 dni. Zwraca [[iso, mid]]. */
   fetchNbpRates: function (code, from, to) {
     var windows = [], s = from;
+    // Podział zakresu na okna ≤ 93 dni (limit API) pobierane sekwencyjnie; 404 = brak notowań w oknie (np. święta)
     while (s <= to) { var e = Util.addDays(s, 92); if (e > to) e = to; windows.push([s, e]); s = Util.addDays(e, 1); }
     return windows.reduce(function (p, w) {
       return p.then(function (acc) {
@@ -767,8 +873,9 @@ var DataSource = {
  * Wszystkie kwoty wynikowe w PLN (o ile nie zaznaczono „native”).
  * ========================================================================== */
 var PortfolioEngine = {
-  EPS: 1e-9,
+  EPS: 1e-9,   // tolerancja porównań ilości (ułamkowe akcje, błędy zaokrągleń)
 
+  /** Kolejność chronologiczna: data, w tym samym dniu kupna przed sprzedażami, potem kolejność wprowadzenia (seq). */
   sortTx: function (txs) {
     return txs.slice().sort(function (a, b) {
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
@@ -777,6 +884,8 @@ var PortfolioEngine = {
     });
   },
 
+  /** Sprawdza, czy żadna sprzedaż (w porządku chronologicznym) nie przekracza posiadanej ilości.
+   *  Zwraca { ok: true } albo { ok: false, tx: pierwsza błędna sprzedaż, held: ilość posiadana przed nią }. */
   validateSequence: function (txs) {
     var held = {};
     var sorted = PortfolioEngine.sortTx(txs);
@@ -792,6 +901,7 @@ var PortfolioEngine = {
     return { ok: true };
   },
 
+  /** Ilość waloru posiadana na koniec dnia date (z pominięciem transakcji excludeId – edytowanej). */
   heldAt: function (txs, ticker, date, excludeId) {
     var k = Util.normSym(ticker), q = 0;
     txs.forEach(function (t) {
@@ -804,6 +914,7 @@ var PortfolioEngine = {
   /** Ostatnia wartość z datą <= date (dni bez notowań → poprzednie zamknięcie). */
   priceAt: function (rows, date) {
     if (!rows || !rows.length || date < rows[0][0]) return null;
+    // Wyszukiwanie binarne ostatniego indeksu z datą <= date (mid zaokrąglany w górę, by pętla się kończyła)
     var lo = 0, hi = rows.length - 1;
     while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (rows[mid][0] <= date) lo = mid; else hi = mid - 1; }
     return { date: rows[lo][0], close: rows[lo][1] };
@@ -813,10 +924,13 @@ var PortfolioEngine = {
   fxRate: function (ctx, ccy, date) {
     var info = Util.ccyInfo(ccy);
     if (info.code === 'PLN') return info.factor;
+    // Kurs NBP z dnia lub ostatni wcześniejszy, przemnożony przez factor (GBp → 0,01 × kurs GBP)
     var q = PortfolioEngine.priceAt(ctx && ctx.fx ? ctx.fx[info.code] : null, date);
     return q ? q.close * info.factor : null;
   },
+  /** Waluta transakcji: zapisana w transakcji, z kontekstu, domyślnie PLN. */
   txCurrency: function (t, ctx) { return t.currency || (ctx && ctx.ccy && ctx.ccy[Util.normSym(t.ticker)]) || 'PLN'; },
+  /** Kurs PLN użyty dla transakcji: ręczny (t.fx) ma pierwszeństwo przed kursem NBP z dnia transakcji. */
   txRate: function (t, ctx) { return t.fx > 0 ? t.fx : PortfolioEngine.fxRate(ctx, PortfolioEngine.txCurrency(t, ctx), t.date); },
 
   /** FIFO w PLN (koszt po kursie z dnia zakupu, przychód po kursie z dnia sprzedaży – zysk obejmuje efekt walutowy).
@@ -827,15 +941,18 @@ var PortfolioEngine = {
       if (asOf && t.date > asOf) return;
       var k = Util.normSym(t.ticker), ccy = PortfolioEngine.txCurrency(t, ctx);
       var rate = PortfolioEngine.txRate(t, ctx);
+      // Brak kursu → NaN: kwoty PLN stają się NaN (widoczne jako „—”) zamiast cicho błędnych; waluta trafia do listy braków
       if (rate == null) { missingFx[Util.ccyInfo(ccy).code] = true; rate = NaN; }
       var p = pos[k] || (pos[k] = { ticker: k, currency: ccy, lots: [], qty: 0, cost: 0, costNative: 0, realized: 0, buyTotal: 0, sellTotal: 0, fees: 0, lastTxPrice: null, lastTxDate: null });
       p.fees += (t.fee || 0) * rate;
       p.lastTxPrice = t.price; p.lastTxDate = t.date;
       if (t.type === 'BUY') {
+        // Kupno = nowa partia; prowizja kupna wchodzi w koszt jednostkowy (w walucie i w PLN po kursie z dnia zakupu)
         var native = t.qty * t.price + (t.fee || 0);
         p.lots.push({ qty: t.qty, unitNative: native / t.qty, unitPLN: native * rate / t.qty });
         p.buyTotal += native * rate;
       } else {
+        // Sprzedaż: przychód netto (po prowizji) w PLN; koszt zdejmowany z najstarszych partii (FIFO), partia może być dzielona
         var proceeds = (t.qty * t.price - (t.fee || 0)) * rate;
         var remaining = t.qty, basis = 0;
         while (remaining > PortfolioEngine.EPS && p.lots.length) {
@@ -847,13 +964,16 @@ var PortfolioEngine = {
         p.realized += proceeds - basis;
         p.sellTotal += proceeds;
       }
+      // Ilość i koszt pozycji przeliczane od nowa z pozostałych partii
       p.qty = 0; p.cost = 0; p.costNative = 0;
       p.lots.forEach(function (l) { p.qty += l.qty; p.cost += l.qty * l.unitPLN; p.costNative += l.qty * l.unitNative; });
     });
+    // Lista walut bez kursu przekazywana w specjalnym kluczu (usuwany w valuation)
     pos.__missingFx = Object.keys(missingFx);
     return pos;
   },
 
+  /** Przepływy pieniężne inwestora w PLN do XIRR: kupno ujemne (wydatek z prowizją), sprzedaż dodatnia (po prowizji). */
   cashFlows: function (txs, asOf, ctx) {
     return PortfolioEngine.sortTx(txs).filter(function (t) { return !asOf || t.date <= asOf; }).map(function (t) {
       var r = PortfolioEngine.txRate(t, ctx);
@@ -867,10 +987,12 @@ var PortfolioEngine = {
     var hasNeg = flows.some(function (f) { return f.amount < 0; }), hasPos = flows.some(function (f) { return f.amount > 0; });
     if (!hasNeg || !hasPos) return null;
     var d0 = flows.reduce(function (m, f) { return f.date < m ? f.date : m; }, flows[0].date);
+    // Czas każdego przepływu w latach od najwcześniejszego; npv(r) = Σ CF_i / (1+r)^t_i, dnpv – pochodna po r
     var ts = flows.map(function (f) { return Util.daysBetween(d0, f.date) / 365; });
     if (Math.max.apply(null, ts) <= 0) return null;
     var npv = function (r) { var s = 0; for (var i = 0; i < flows.length; i++) s += flows[i].amount / Math.pow(1 + r, ts[i]); return s; };
     var dnpv = function (r) { var s = 0; for (var i = 0; i < flows.length; i++) s -= ts[i] * flows[i].amount / Math.pow(1 + r, ts[i] + 1); return s; };
+    // 1) Metoda Newtona od 10%; krok poniżej −100% jest skracany. Wynik akceptowany tylko, gdy NPV ≈ 0.
     var r = 0.1;
     for (var it = 0; it < 100; it++) {
       var f = npv(r), df = dnpv(r);
@@ -880,6 +1002,7 @@ var PortfolioEngine = {
       if (Math.abs(nr - r) < 1e-10) { if (Math.abs(npv(nr)) < 1e-6 * Math.max(1, Math.abs(flows[0].amount))) return nr; break; }
       r = nr;
     }
+    // 2) Zapas: bisekcja – rozszerzamy górną granicę, aż NPV zmieni znak, potem połowimy przedział
     var lo = -0.999999, hi = 1, flo = npv(lo), fhi = npv(hi);
     while (flo * fhi > 0 && hi < 1e6) { hi *= 2; fhi = npv(hi); }
     if (flo * fhi > 0) return null;
@@ -891,6 +1014,8 @@ var PortfolioEngine = {
     return (lo + hi) / 2;
   },
 
+  /** Maksymalne obsunięcie: największy spadek od szczytu (wartość ujemna, np. −0,25 = −25%) wraz z indeksami szczytu i dołka.
+   *  Pomija wartości null/NaN. */
   maxDrawdown: function (values) {
     var peak = -Infinity, peakIdx = -1, best = { value: 0, peakIdx: -1, troughIdx: -1 };
     for (var i = 0; i < values.length; i++) {
@@ -909,6 +1034,7 @@ var PortfolioEngine = {
     var list = Object.keys(pos).map(function (k) {
       var p = pos[k], ccy = (ctx.ccy && ctx.ccy[k]) || p.currency;
       var q = PortfolioEngine.priceAt(ctx.prices[k], asOf);
+      // Brak notowań → wycena ceną ostatniej transakcji (oznaczana w UI ikoną ⚠)
       var price = q ? q.close : p.lastTxPrice;
       var rate = PortfolioEngine.fxRate(ctx, ccy, asOf);
       if (rate == null && p.qty > PortfolioEngine.EPS) { var c = Util.ccyInfo(ccy).code; if (missingFx.indexOf(c) < 0) missingFx.push(c); }
@@ -921,15 +1047,18 @@ var PortfolioEngine = {
         totalPL: value - p.cost + p.realized, closed: p.qty <= PortfolioEngine.EPS
       };
     });
+    // Sumy portfela
     var T = list.reduce(function (s, p) {
       s.value += p.value; s.cost += p.cost; s.realized += p.realized; s.unrealized += p.unrealized;
       s.buyTotal += p.buyTotal; s.sellTotal += p.sellTotal; s.fees += p.fees; return s;
     }, { value: 0, cost: 0, realized: 0, unrealized: 0, buyTotal: 0, sellTotal: 0, fees: 0 });
     list.forEach(function (p) { p.weight = T.value > 0 ? p.value / T.value : 0; });
     T.netInvested = T.buyTotal - T.sellTotal;
+    // Zysk całkowity = bieżąca wartość + wpływy ze sprzedaży − wydatki na kupno (prowizje już uwzględnione)
     T.totalPL = T.value + T.sellTotal - T.buyTotal;
     T.simpleReturn = T.buyTotal > 0 ? T.totalPL / T.buyTotal : null;
     var flows = PortfolioEngine.cashFlows(txs, asOf, ctx);
+    // Do XIRR bieżąca wartość portfela traktowana jak końcowy przepływ dodatni (fikcyjna sprzedaż na dzień asOf)
     if (flows.length && T.value > PortfolioEngine.EPS) flows.push({ date: asOf, amount: T.value });
     T.xirr = PortfolioEngine.xirr(flows);
     T.missingQuotes = list.filter(function (p) { return !p.closed && !p.priceFromQuotes; }).map(function (p) { return p.ticker; });
@@ -944,6 +1073,7 @@ var PortfolioEngine = {
     var sorted = PortfolioEngine.sortTx(txs).filter(function (t) { return t.date <= asOf; });
     if (!sorted.length) return null;
     var start = sorted[0].date, benchRows = benchSym ? ctx.prices[benchSym] : null;
+    // Oś czasu = suma dni transakcji oraz dni sesyjnych walorów i benchmarku w zakresie [start, asOf]
     var dateSet = {}, syms = {};
     sorted.forEach(function (t) { dateSet[t.date] = true; syms[Util.normSym(t.ticker)] = true; });
     Object.keys(syms).forEach(function (k) {
@@ -952,6 +1082,8 @@ var PortfolioEngine = {
     });
     if (benchRows) for (var bi = 0; bi < benchRows.length; bi++) if (benchRows[bi][0] >= start && benchRows[bi][0] <= asOf) dateSet[benchRows[bi][0]] = true;
     var dates = Object.keys(dateSet).sort();
+    // Daty rosną, więc zamiast wyszukiwania binarnego każdy szereg ma kursor przesuwany tylko do przodu (O(n) łącznie).
+    // lookup zwraca ostatnią wartość z datą <= d (lub null przed pierwszym notowaniem).
     var cursors = {};
     var lookup = function (key, rows, d) {
       if (!rows || !rows.length) return null;
@@ -960,6 +1092,7 @@ var PortfolioEngine = {
       cursors[key] = c;
       return rows[c][0] <= d ? rows[c][1] : null;
     };
+    // Kurs PLN waluty ccy w dniu d (z uwzględnieniem factor dla GBp itp.)
     var rateAt = function (ccy, d) {
       var info = Util.ccyInfo(ccy);
       if (info.code === 'PLN') return info.factor;
@@ -971,6 +1104,7 @@ var PortfolioEngine = {
     var out = { dates: dates, value: [], invested: [], twr: [], bench: [] };
     for (var di = 0; di < dates.length; di++) {
       var d = dates[di], flow = 0;
+      // Zastosuj transakcje z dnia d; flow = przepływ netto w PLN (kupno +, sprzedaż −)
       while (txi < sorted.length && sorted[txi].date === d) {
         var t = sorted[txi++], k = Util.normSym(t.ticker);
         held[k] = (held[k] || 0) + (t.type === 'BUY' ? t.qty : -t.qty);
@@ -980,6 +1114,7 @@ var PortfolioEngine = {
         flow += (t.type === 'BUY' ? t.qty * t.price + (t.fee || 0) : -(t.qty * t.price - (t.fee || 0))) * (r0 == null ? NaN : r0);
       }
       invested += flow;
+      // Wartość portfela na koniec dnia d: ilość × ostatnie zamknięcie (lub cena transakcji) × kurs z dnia d
       var V = 0;
       for (var key in held) {
         if (held[key] <= PortfolioEngine.EPS) continue;
@@ -988,11 +1123,14 @@ var PortfolioEngine = {
         var rt = rateAt(ccyOf[key], d);
         V += held[key] * px * (rt == null ? NaN : rt);
       }
+      // Stopa dzienna TWR: zmiana wartości bez wpływu przepływu; dopłata zwiększa bazę (zakładamy wpłatę na początku dnia).
+      // Indeks TWR łańcuchowo: idx_t = idx_{t−1} × (1 + r_t), start = 100.
       var denom = prevV + Math.max(flow, 0);
       var r = denom > PortfolioEngine.EPS ? (V - prevV - flow) / denom : 0;
       idx = idx * (1 + r);
       prevV = V;
       out.value.push(V); out.invested.push(invested); out.twr.push(isFinite(idx) ? idx : null);
+      // Benchmark w PLN, znormalizowany do 100 w pierwszym dniu, dla którego jest notowanie i kurs
       var b = lookup('bench', benchRows, d), br = rateAt(benchCcy, d);
       var bPLN = b != null && br != null ? b * br : null;
       if (bPLN != null && benchBase == null) benchBase = bPLN;
@@ -1007,11 +1145,13 @@ var PortfolioEngine = {
  * Fmt – formatowanie Intl pl-PL
  * ========================================================================== */
 var Fmt = (function () {
+  // Formatery tworzone raz (Intl.NumberFormat jest kosztowny); formatery walut zapamiętywane per kod waluty
   var L = Config.LOCALE, curCache = {};
   var cur = function (c, signed) {
     var key = c + (signed ? '+' : '');
     if (!curCache[key]) {
       try { curCache[key] = new Intl.NumberFormat(L, { style: 'currency', currency: c, signDisplay: signed ? 'exceptZero' : 'auto' }); }
+      // nieznany kod waluty (RangeError) → zwykła liczba z 2 miejscami
       catch (e) { curCache[key] = new Intl.NumberFormat(L, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     }
     return curCache[key];
@@ -1027,9 +1167,11 @@ var Fmt = (function () {
   var compact = new Intl.NumberFormat(L, { notation: 'compact', maximumFractionDigits: 1 });
   var dash = '—';
   var ok = function (x) { return x != null && isFinite(x); };
+  // Każda funkcja zwraca „—” dla null/NaN/Infinity
   return {
     pln: function (x) { return ok(x) ? cur('PLN').format(x) : dash; },
     plnSigned: function (x) { return ok(x) ? cur('PLN', true).format(x) : dash; },
+    // Kwota w walucie notowań; GBp nie jest kodem ISO 4217, więc formatowana ręcznie
     money: function (x, c) {
       if (!ok(x)) return dash;
       if (c === 'GBp' || c === 'GBX') return price.format(x) + ' GBp';
@@ -1044,7 +1186,9 @@ var Fmt = (function () {
     dayMonth: function (ms) { return dayMonth.format(new Date(ms)); },
     dateTime: function (isoDt) { try { return dateTime.format(new Date(isoDt)); } catch (e) { return dash; } },
     compact: function (x) { return compact.format(x); },
+    // Liczba do CSV dla polskiego Excela (przecinek dziesiętny, bez separatora tysięcy)
     csvNum: function (x, d) { return ok(x) ? x.toFixed(d == null ? 2 : d).replace('.', ',') : ''; },
+    // Klasa CSS koloru: 'gain' / 'loss' / '' (|x| < 0,005 traktowane jak zero)
     cls: function (x) { return !ok(x) || Math.abs(x) < 0.005 ? '' : (x > 0 ? 'gain' : 'loss'); }
   };
 })();
@@ -1053,24 +1197,31 @@ var Fmt = (function () {
  * Charts – wykresy liniowe na <canvas> z tooltipem i celownikiem
  * ========================================================================== */
 var Charts = {
+  /** Bieżąca wartość zmiennej CSS (kolory zależą od motywu). */
   css: function (name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); },
 
+  /** „Ładne” podziałki osi Y: krok 1/2/5 × 10^n, zakres rozszerzony do pełnych kroków.
+   *  Zwraca { min, max, ticks }. Dla min === max dodaje margines ±5%. */
   niceTicks: function (min, max, count) {
     if (min === max) { var pad = Math.abs(min) * 0.05 || 1; min -= pad; max += pad; }
     var span = max - min, step = Math.pow(10, Math.floor(Math.log10(span / count)));
     var err = (span / count) / step;
     if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
     var lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step, ticks = [];
+    // zaokrąglenie do wielokrotności kroku usuwa błędy zmiennoprzecinkowe (np. 0.30000000004)
     for (var v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v / step) * step);
     return { min: lo, max: hi, ticks: ticks };
   },
 
+  /** Rysuje wykres wg konfiguracji cfg: { dates, series: [{label, values, color: '--zmienna', dash?}], yFmt, tipFmt?,
+   *  extraTip?, refLine?, empty? }. Konfiguracja zapamiętywana na canvasie (do przerysowania przy hover/resize). */
   draw: function (canvas, cfg) {
     canvas._cfg = cfg;
     if (!canvas._bound) Charts.bind(canvas);
     Charts.render(canvas, null);
   },
 
+  /** Jednorazowo podpina obsługę myszy/dotyku: celownik i tooltip dla najbliższego dnia. */
   bind: function (canvas) {
     canvas._bound = true;
     var tip = canvas.parentNode.querySelector('.tooltip');
@@ -1080,6 +1231,7 @@ var Charts = {
       var rect = canvas.getBoundingClientRect();
       var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
       if (x < L.l - 10 || x > L.l + L.w + 10) { leave(); return; }
+      // Piksel → czas, potem wyszukiwanie binarne dwóch sąsiednich dat i wybór bliższej
       var t = L.t0 + (x - L.l) / L.w * (L.t1 - L.t0);
       var ts = L.ts, lo = 0, hi = ts.length - 1;
       while (hi - lo > 1) { var m = (lo + hi) >> 1; if (ts[m] < t) lo = m; else hi = m; }
@@ -1093,6 +1245,7 @@ var Charts = {
       if (cfg.extraTip) html += cfg.extraTip(idx);
       tip.innerHTML = html;
       tip.classList.remove('hidden');
+      // Tooltip po prawej stronie celownika; gdy by się nie zmieścił – po lewej (nie wychodzi poza lewą krawędź)
       var px = L.xOf(ts[idx]), tw = tip.offsetWidth;
       tip.style.left = Math.max(0, px + 14 + tw > rect.width ? px - 14 - tw : px + 14) + 'px';
       tip.style.top = (L.t + 6) + 'px';
@@ -1103,8 +1256,10 @@ var Charts = {
     canvas.addEventListener('mouseleave', leave);
   },
 
+  /** Pełne przerysowanie wykresu; hoverIdx – indeks dnia pod kursorem (celownik i punkty) albo null. */
   render: function (canvas, hoverIdx) {
     var cfg = canvas._cfg; if (!cfg) return;
+    // Rozdzielczość bufora = rozmiar CSS × devicePixelRatio (ostre linie na ekranach HiDPI); rysujemy w pikselach CSS
     var dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
     if (!W || !H) return;
     if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
@@ -1122,17 +1277,20 @@ var Charts = {
       return;
     }
     var yt = Charts.niceTicks(Math.min.apply(null, all), Math.max.apply(null, all), 5);
+    // Układ: lewy margines dopasowany do najszerszej etykiety osi Y; xOf/yOf mapują czas/wartość na piksele
     var labels = yt.ticks.map(cfg.yFmt);
     var lw = Math.max.apply(null, labels.map(function (s) { return ctx.measureText(s).width; }));
     var L = { l: Math.ceil(lw) + 12, r: 12, t: 8, b: 24 };
     L.w = W - L.l - L.r; L.h = H - L.t - L.b;
     L.ts = cfg.dates.map(Util.dateMs);
     L.t0 = L.ts[0]; L.t1 = L.ts[L.ts.length - 1];
+    // jeden dzień danych → sztuczny zakres ±1 dzień (unikamy dzielenia przez zero)
     if (L.t1 === L.t0) { L.t0 -= 86400000; L.t1 += 86400000; }
     L.xOf = function (t) { return L.l + (t - L.t0) / (L.t1 - L.t0) * L.w; };
     L.yOf = function (v) { return L.t + (1 - (v - yt.min) / (yt.max - yt.min)) * L.h; };
     canvas._layout = L;
 
+    // Siatka pozioma i etykiety osi Y (+0,5 px – ostra linia 1 px)
     ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.fillStyle = textMuted;
     ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
     yt.ticks.forEach(function (v, i) {
@@ -1140,6 +1298,7 @@ var Charts = {
       ctx.beginPath(); ctx.moveTo(L.l, y); ctx.lineTo(L.l + L.w, y); ctx.stroke();
       ctx.fillText(labels[i], L.l - 6, y);
     });
+    // Etykiety osi X: 2–6 równomiernie (ok. 90 px na etykietę); przy zakresie > 120 dni format „mies. rok”
     var spanDays = (L.t1 - L.t0) / 86400000, nX = Math.max(2, Math.min(6, Math.floor(L.w / 90)));
     ctx.textBaseline = 'top';
     for (var i = 0; i <= nX; i++) {
@@ -1147,6 +1306,7 @@ var Charts = {
       ctx.textAlign = i === 0 ? 'left' : (i === nX ? 'right' : 'center');
       ctx.fillText(spanDays > 120 ? Fmt.monthYear(t) : Fmt.dayMonth(t), L.xOf(t), L.t + L.h + 6);
     }
+    // Linia odniesienia (np. 100 na wykresie stopy zwrotu)
     if (cfg.refLine != null && cfg.refLine >= yt.min && cfg.refLine <= yt.max) {
       ctx.strokeStyle = textMuted; ctx.setLineDash([2, 3]);
       var ry = Math.round(L.yOf(cfg.refLine)) + 0.5;
@@ -1157,6 +1317,7 @@ var Charts = {
       ctx.strokeStyle = Charts.css(s.color); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       ctx.setLineDash(s.dash ? [6, 4] : []);
       ctx.beginPath();
+      // Wartości null przerywają linię (pen = false); pojedynczy punkt rysowany jako kółko
       var pen = false;
       for (var j = 0; j < s.values.length; j++) {
         var v = s.values[j];
@@ -1168,6 +1329,7 @@ var Charts = {
       ctx.stroke();
     });
     ctx.setLineDash([]);
+    // Celownik: pionowa linia i punkty serii w wybranym dniu
     if (hoverIdx != null) {
       var hx = Math.round(L.xOf(L.ts[hoverIdx])) + 0.5;
       ctx.strokeStyle = textMuted; ctx.lineWidth = 1;
@@ -1181,6 +1343,7 @@ var Charts = {
     }
   },
 
+  /** Legenda HTML nad wykresem (próbka koloru, linia przerywana dla serii dash). */
   legend: function (el, series) {
     el.innerHTML = series.map(function (s) {
       var c = Charts.css(s.color);
@@ -1188,6 +1351,7 @@ var Charts = {
     }).join('');
   },
 
+  /** Przerysowanie wszystkich wykresów (po zmianie rozmiaru okna). */
   redrawAll: function () { document.querySelectorAll('canvas').forEach(function (c) { Charts.render(c, null); }); }
 };
 
@@ -1195,10 +1359,12 @@ var Charts = {
  * UI – stan aplikacji, renderowanie, zdarzenia
  * ========================================================================== */
 var UI = {
-  state: null,
+  state: null,   // stan trwały (portfele, ustawienia) – zapisywany w localStorage i eksporcie JSON
+  // Stan ulotny widoku: data wyceny, sortowanie tabeli, edytowana transakcja, klucz zaakceptowanego ostrzeżenia
   ui: { asOf: null, sort: { key: 'value', dir: -1 }, editId: null, pendingWarnKey: null },
 
   /* ---------- stan ---------- */
+  /** Stan początkowy: jeden pusty portfel. */
   defaultState: function () {
     var id = Util.uid();
     return {
@@ -1212,13 +1378,17 @@ var UI = {
   migrateTicker: function (t) {
     var s = String(t || '').trim().toLowerCase();
     if (Config.STOOQ_INDEX[s]) return Config.STOOQ_INDEX[s];
+    // sam ticker Stooq ('pkn') → spółka GPW ('PKN.WA'); inne formaty zostawiamy (tylko normalizacja)
     return /^[a-z0-9]+$/.test(s) ? s.toUpperCase() + '.WA' : Util.normSym(t);
   },
+  /** Waliduje i normalizuje stan (z localStorage lub importu JSON), migrując format v1 (brak version >= 2).
+   *  Rzuca Error przy niepoprawnych danych – lepiej odrzucić plik niż wczytać go częściowo. */
   normalizeState: function (s) {
     if (!s || typeof s !== 'object' || !Array.isArray(s.portfolios)) throw new Error('Nieprawidłowy format pliku (brak listy portfeli).');
     var legacy = !(s.version >= 2);
     var st = s.settings || {};
     var bench = st.benchmark;
+    // v1 miał benchmarki 'wig' / 'wig20' – WIG20 bez historii w Yahoo zastępujemy ETF-em WIG20TR
     if (legacy) bench = bench === 'wig' ? 'WIG.WA' : 'ETFBW20TR.WA';
     var out = { app: Config.APP_ID, version: Config.VERSION, seq: +s.seq || 1, portfolios: [], activeId: s.activeId,
       settings: { theme: st.theme || 'auto', benchmark: bench ? Util.normSym(bench) : 'ETFBW20TR.WA', dataUrl: st.dataUrl || '' } };
@@ -1226,12 +1396,14 @@ var UI = {
       if (!p || typeof p !== 'object') return;
       var np = { id: String(p.id || Util.uid()), name: String(p.name || 'Portfel'), created: p.created || Util.todayISO(), transactions: [] };
       (p.transactions || []).forEach(function (t) {
+        // v1: tylko GPW, więc waluta zawsze PLN; brak seq → kolejny numer z licznika
         var sym = legacy ? UI.migrateTicker(t.ticker) : Util.normSym(t.ticker);
         var tx = { id: String(t.id || Util.uid()), seq: +t.seq || out.seq++, ticker: sym, type: t.type === 'SELL' ? 'SELL' : 'BUY',
           date: String(t.date), qty: +t.qty, price: +t.price, fee: +t.fee || 0,
           currency: t.currency || (legacy ? 'PLN' : (Util.guessCurrency(sym) || 'PLN')) };
         if (+t.fx > 0) tx.fx = +t.fx;
         if (!Util.isSym(tx.ticker) || !Util.isISODate(tx.date) || !(tx.qty > 0) || !(tx.price > 0)) throw new Error('Nieprawidłowa transakcja w portfelu „' + np.name + '”.');
+        // licznik seq zawsze większy od największego użytego numeru
         out.seq = Math.max(out.seq, tx.seq + 1);
         np.transactions.push(tx);
       });
@@ -1241,16 +1413,20 @@ var UI = {
     if (!out.portfolios.some(function (p) { return p.id === out.activeId; })) out.activeId = out.portfolios[0].id;
     return out;
   },
+  /** Zapis stanu w localStorage; komunikat tylko, gdy magazyn działa, a zapis się nie udał (np. brak miejsca). */
   save: function () {
     if (!Storage.set(Config.STORAGE_STATE, UI.state) && Storage.available) UI.toast('Nie udało się zapisać w localStorage – użyj eksportu JSON.');
   },
+  /** Aktywny portfel (awaryjnie pierwszy). */
   active: function () {
     var s = UI.state;
     return s.portfolios.filter(function (p) { return p.id === s.activeId; })[0] || s.portfolios[0];
   },
+  // asOf: data wyceny (domyślnie dziś); allTransactions: transakcje ze wszystkich portfeli; earliestDate: najwcześniejsza data
   asOf: function () { return UI.ui.asOf || Util.todayISO(); },
   allTransactions: function () { return UI.state.portfolios.reduce(function (a, p) { return a.concat(p.transactions); }, []); },
   earliestDate: function (txs) { return txs.reduce(function (m, t) { return !m || t.date < m ? t.date : m; }, null); },
+  /** Data, od której trzymamy notowania z sieci w cache: najwcześniejsza transakcja (wszystkie portfele) − margines. */
   cacheCutoff: function () {
     var e = UI.earliestDate(UI.allTransactions());
     return Util.addDays(e || Util.todayISO(), -Config.CACHE_MARGIN_DAYS);
@@ -1260,12 +1436,14 @@ var UI = {
     var prices = {}, ccy = {}, fx = {};
     Object.keys(DataSource.quotes).forEach(function (k) { if (DataSource.quotes[k].rows) prices[k] = DataSource.quotes[k].rows; });
     Object.keys(DataSource.fx).forEach(function (k) { if (DataSource.fx[k].rows) fx[k] = DataSource.fx[k].rows; });
+    // Waluty: z manifestu/symbolu dla walorów z notowaniami, z transakcji dla pozostałych, plus benchmark
     var add = function (s) { var c = DataSource.currencyOf(s); if (c) ccy[s] = c; };
     Object.keys(prices).forEach(add);
     UI.allTransactions().forEach(function (t) { if (!ccy[t.ticker]) ccy[t.ticker] = t.currency || DataSource.currencyOf(t.ticker) || 'PLN'; });
     add(UI.state.settings.benchmark);
     return { prices: prices, ccy: ccy, fx: fx };
   },
+  /** Symbole aktywnego portfela (posortowane) + benchmark – do panelu „Źródła danych”. */
   neededTickers: function () {
     var set = {};
     UI.active().transactions.forEach(function (t) { set[t.ticker] = true; });
@@ -1275,18 +1453,22 @@ var UI = {
   },
 
   /* ---------- pomocnicze ---------- */
+  // $: skrót do getElementById; esc: ucieczka HTML dla danych wstawianych przez innerHTML
   $: function (id) { return document.getElementById(id); },
   esc: function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); },
+  /** Krótkie powiadomienie na dole ekranu (znika po 4 s; kolejne wywołanie przedłuża czas). */
   toast: function (msg) {
     var t = UI.$('toast'); t.textContent = msg; t.classList.add('show');
     clearTimeout(UI._toastT); UI._toastT = setTimeout(function () { t.classList.remove('show'); }, 4000);
   },
+  /** Pobranie pliku wygenerowanego w przeglądarce (Blob + tymczasowy link); URL zwalniany z opóźnieniem. */
   download: function (filename, content, mime) {
     var url = URL.createObjectURL(new Blob([content], { type: mime }));
     var a = document.createElement('a'); a.href = url; a.download = filename;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
   },
+  /** Odczyt pliku jako tekst UTF-8 (Promise<string>). */
   readFile: function (file) {
     return new Promise(function (res, rej) {
       var r = new FileReader();
@@ -1297,6 +1479,8 @@ var UI = {
   },
 
   /* ---------- init ---------- */
+  /** Start aplikacji: stan z localStorage (uszkodzony → domyślny), cache notowań, UI, pierwsza synchronizacja
+   *  i cykliczne sprawdzanie co godzinę. */
   init: function () {
     Storage.init();
     var saved = Storage.get(Config.STORAGE_STATE);
@@ -1315,18 +1499,21 @@ var UI = {
       : 'Zapis w przeglądarce niedostępny – dane znikną po zamknięciu karty. Używaj eksportu JSON.';
     UI.bindEvents();
     UI.renderAll();
+    // Świeży manifest z cache (< 1 h) → bez ponownego pobierania, tylko dociągnięcie brakujących plików
     var age = DataSource.manifestAt ? Date.now() - new Date(DataSource.manifestAt).getTime() : Infinity;
     UI.sync(age < Config.MANIFEST_MAX_AGE_MS);
     setInterval(function () { UI.sync(false); }, Config.SYNC_INTERVAL_MS);
     if (location.hash === '#selftest') UI.showSelfTests();
   },
 
+  /** Wypełnia listę benchmarków; niestandardowy benchmark z ustawień (np. z importu) dopisywany na końcu. */
   fillBenchmarks: function () {
     var cur = UI.state.settings.benchmark, list = Config.BENCHMARKS.slice();
     if (!list.some(function (b) { return b[0] === cur; })) list.push([cur, cur]);
     UI.$('benchmark').innerHTML = list.map(function (b) { return '<option value="' + UI.esc(b[0]) + '">' + UI.esc(b[1]) + '</option>'; }).join('');
     UI.$('benchmark').value = cur;
   },
+  /** Podpowiedzi symboli: z manifestu, a gdy go brak – lista zapasowa. DOM aktualizowany tylko przy zmianie. */
   fillDatalist: function () {
     var keys = Object.keys(DataSource.symbols), html;
     if (keys.length) {
@@ -1340,8 +1527,10 @@ var UI = {
     if (html !== UI._dlHtml) { UI.$('tickerList').innerHTML = html; UI._dlHtml = html; }
   },
 
+  /** Podpięcie wszystkich zdarzeń UI (wywoływane raz w init). */
   bindEvents: function () {
     var $ = UI.$;
+    // --- portfele ---
     $('btnNewPortfolio').onclick = function () {
       var name = prompt('Nazwa nowego portfela:', 'Portfel ' + (UI.state.portfolios.length + 1));
       if (name == null) return;
@@ -1365,6 +1554,7 @@ var UI = {
       UI.state.activeId = b.dataset.id; UI.cancelEdit(); UI.save(); UI.renderAll(); UI.sync(true);
     };
 
+    // --- data wyceny (przyszłe daty obcinane do dziś), benchmark, motyw ---
     $('asOf').onchange = function () {
       var v = this.value;
       if (v && v > Util.todayISO()) { v = Util.todayISO(); this.value = v; }
@@ -1376,17 +1566,20 @@ var UI = {
       var order = ['auto', 'light', 'dark'], s = UI.state.settings;
       s.theme = order[(order.indexOf(s.theme) + 1) % 3]; UI.save(); UI.applyTheme(); UI.renderCharts();
     };
+    // W trybie „auto” przerysuj wykresy po zmianie motywu systemu (kolory canvas nie aktualizują się same)
     if (window.matchMedia) {
       var mq = window.matchMedia('(prefers-color-scheme: dark)');
       var h = function () { if (UI.state.settings.theme === 'auto') UI.renderCharts(); };
       if (mq.addEventListener) mq.addEventListener('change', h); else if (mq.addListener) mq.addListener(h);
     }
 
+    // --- formularz transakcji: każda zmiana pola unieważnia zaakceptowane ostrzeżenie i odświeża podpowiedź ---
     $('txForm').onsubmit = function (e) { e.preventDefault(); UI.submitTx(); };
     $('btnTxCancel').onclick = function () { UI.cancelEdit(); };
     ['fTicker', 'fDate', 'fPrice', 'fQty', 'fType', 'fFx'].forEach(function (id) {
       $(id).addEventListener('input', function () { UI.ui.pendingWarnKey = null; UI.updateTxHint(); });
     });
+    // Po wyborze waloru: zamiana na pełny symbol (np. PKN → PKN.WA) i pobranie jego notowań
     $('fTicker').addEventListener('change', function () {
       var s = DataSource.resolveSymbol(this.value);
       if (s && s !== this.value) this.value = s;
@@ -1394,6 +1587,7 @@ var UI = {
       if (s && Util.isSym(s)) UI.ensureData([s]);
     });
 
+    // --- tabele (delegacja zdarzeń): sortowanie po kliknięciu nagłówka – tekst rosnąco, liczby malejąco ---
     $('posTable').onclick = function (e) {
       var th = e.target.closest('th[data-key]'); if (!th) return;
       var k = th.dataset.key, s = UI.ui.sort;
@@ -1405,6 +1599,7 @@ var UI = {
       if (b.dataset.act === 'edit') UI.startEdit(b.dataset.id); else UI.deleteTx(b.dataset.id);
     };
 
+    // --- notowania: odświeżanie, diagnostyka, import CSV, adres serwera danych ---
     $('btnRefresh').onclick = function () { UI.sync(false, true); };
     $('btnDiag').onclick = UI.runDiagnostics;
     $('btnPickCsv').onclick = function () { $('fileCsv').click(); };
@@ -1412,6 +1607,7 @@ var UI = {
     $('manualPanel').addEventListener('change', function (e) {
       if (e.target.matches('input[type=file]')) { UI.importCsvFiles(e.target.files, e.target.dataset.ticker); e.target.value = ''; }
     });
+    // Nowy adres: dopisz końcowy '/', zapisz (pusty = domyślny), wyczyść manifest starego serwera i zsynchronizuj
     $('btnSaveUrl').onclick = function () {
       var v = $('dataUrl').value.trim();
       if (v && !/\/$/.test(v)) v += '/';
@@ -1427,6 +1623,8 @@ var UI = {
     $('btnImportJson').onclick = function () { $('fileJson').click(); };
     $('fileJson').onchange = function () { if (this.files[0]) UI.importJsonFile(this.files[0]); this.value = ''; };
 
+    // --- przeciąganie plików na stronę: licznik depth, bo dragenter/dragleave odpalają też dla elementów potomnych.
+    // JSON → import stanu, pozostałe pliki → import CSV notowań.
     var depth = 0;
     window.addEventListener('dragenter', function (e) { e.preventDefault(); depth++; document.body.classList.add('dragging'); });
     window.addEventListener('dragleave', function () { if (--depth <= 0) { depth = 0; document.body.classList.remove('dragging'); } });
@@ -1439,10 +1637,12 @@ var UI = {
       if (json.length) UI.importJsonFile(json[0]);
       if (csv.length) UI.importCsvFiles(csv);
     });
+    // Przerysowanie wykresów po zmianie rozmiaru okna (z opóźnieniem 100 ms – debounce)
     var rt;
     window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(Charts.redrawAll, 100); });
   },
 
+  /** Ustawia atrybut data-theme na <html> („auto” = brak atrybutu, decyduje prefers-color-scheme). */
   applyTheme: function () {
     var t = UI.state.settings.theme;
     if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
@@ -1452,6 +1652,8 @@ var UI = {
   /* ---------- synchronizacja z lustrem ---------- */
   /** skipManifest: użyj manifestu z cache (świeży); verbose: komunikat po zakończeniu. */
   sync: function (skipManifest, verbose) {
+    // Przebieg: (manifest) → podpowiedzi symboli → notowania i kursy → status. Flaga syncing blokuje równoległe synchronizacje.
+    // Błąd manifestu nie przerywa – pracujemy na danych z cache, a komunikat trafia do mirrorError.
     if (DataSource.syncing) return Promise.resolve();
     DataSource.syncing = true; UI.renderSyncStatus();
     var p = (skipManifest && DataSource.manifest) ? Promise.resolve() : DataSource.loadManifest().catch(function (e) { DataSource.mirrorError = e.message; });
@@ -1469,17 +1671,20 @@ var UI = {
     var syms = symbols || (function () {
       var set = {}; all.forEach(function (t) { set[t.ticker] = true; }); set[UI.state.settings.benchmark] = true; return Object.keys(set);
     })();
+    // Od kiedy potrzebne są dane: najwcześniejsza transakcja danego symbolu (benchmark – od 1. transakcji aktywnego portfela)
     var firstBySym = {};
     all.forEach(function (t) { if (!firstBySym[t.ticker] || t.date < firstBySym[t.ticker]) firstBySym[t.ticker] = t.date; });
     var earliest = UI.earliestDate(UI.active().transactions);
     var jobs = syms.map(function (s) { return DataSource.ensureSymbol(s, firstBySym[s] || earliest); });
     return Promise.all(jobs).then(function (r1) {
+      // Po notowaniach (manifest zna już waluty) – zbierz potrzebne waluty i najwcześniejszą datę dla każdej
       var codes = {}, ccyFrom = {};
       syms.concat(all.map(function (t) { return t.ticker; })).forEach(function (s) {
         var c = Util.ccyInfo(DataSource.currencyOf(s)).code;
         if (c && c !== 'PLN') { codes[c] = true; var f = firstBySym[s] || earliest; if (f && (!ccyFrom[c] || f < ccyFrom[c])) ccyFrom[c] = f; }
       });
       all.forEach(function (t) { var c = Util.ccyInfo(t.currency).code; if (c !== 'PLN') { codes[c] = true; if (!ccyFrom[c] || t.date < ccyFrom[c]) ccyFrom[c] = t.date; } });
+      // 10 dni zapasu przed datą – transakcja w dzień bez tabeli NBP używa kursu z dnia wcześniejszego
       return Promise.all(Object.keys(codes).map(function (c) { return DataSource.ensureFx(c, ccyFrom[c] ? Util.addDays(ccyFrom[c], -10) : null); }))
         .then(function (r2) { return r1.concat(r2).some(Boolean); });
     }).then(function (changed) {
@@ -1490,6 +1695,7 @@ var UI = {
   },
 
   /* ---------- renderowanie ---------- */
+  /** Przelicza i przerysowuje cały widok. */
   renderAll: function () {
     UI.renderPortfolioList();
     UI.compute();
@@ -1502,6 +1708,7 @@ var UI = {
     UI.renderSyncStatus();
   },
 
+  /** Wycena i szereg czasowy aktywnego portfela; błąd silnika zapisywany w calcError (pokazywany w KPI). */
   compute: function () {
     var p = UI.active(), asOf = UI.asOf(), ctx = UI.ctx();
     try {
@@ -1511,6 +1718,7 @@ var UI = {
     } catch (e) { UI.calc = { positions: [], totals: null }; UI.series = null; UI.calcError = e.message; }
   },
 
+  /** Status połączenia z lustrem w panelu bocznym. */
   renderSyncStatus: function () {
     var el = UI.$('syncStatus'), m = DataSource.manifest, txt, cls;
     if (DataSource.syncing) { cls = 'busy'; txt = 'Sprawdzanie nowych danych…'; }
@@ -1527,6 +1735,7 @@ var UI = {
     UI.$('btnRefresh').disabled = DataSource.syncing;
   },
 
+  /** Lista portfeli, nazwa aktywnego i opis daty wyceny. */
   renderPortfolioList: function () {
     var s = UI.state;
     UI.$('portfolioList').innerHTML = s.portfolios.map(function (p) {
@@ -1537,6 +1746,7 @@ var UI = {
     UI.$('asOfInfo').textContent = UI.ui.asOf ? 'Widok historyczny na ' + Fmt.date(UI.ui.asOf) : 'Stan bieżący (ostatnie dostępne zamknięcia)';
   },
 
+  /** Kafelki podsumowania (wartość, kapitał, zysk, stopy zwrotu, obsunięcie, prowizje). */
   renderKpis: function () {
     var T = UI.calc.totals, el = UI.$('kpis');
     if (UI.calcError) { el.innerHTML = '<div class="notice err">' + UI.esc(UI.calcError) + '</div>'; return; }
@@ -1548,6 +1758,7 @@ var UI = {
     var k = function (label, value, sub, cls, title) {
       return '<div class="kpi" title="' + UI.esc(title || '') + '"><div class="label">' + label + '</div><div class="value ' + (cls || '') + '">' + value + '</div><div class="sub">' + (sub || '&nbsp;') + '</div></div>';
     };
+    // Podpis pod wartością: data najnowszego zamknięcia; braki notowań/kursów mają pierwszeństwo (kursy najważniejsze)
     var lastPx = UI.calc.positions.filter(function (p) { return !p.closed && p.priceFromQuotes; })
       .reduce(function (m, p) { return !m || p.priceDate > m ? p.priceDate : m; }, null);
     var sub = lastPx ? 'kursy zamknięcia z ' + Fmt.date(lastPx) : 'na ' + Fmt.date(UI.asOf());
@@ -1563,6 +1774,7 @@ var UI = {
       k('Prowizje', Fmt.pln(T.fees), '', '');
   },
 
+  /** Klasa i opis chipa źródła notowań: z serwera / z pliku (w tej sesji) / z pamięci / brak. */
   sourceLabel: function (q) {
     if (!q || !q.rows) return { cls: 'none', text: q && q.error ? 'brak danych (' + q.error + ')' : 'brak danych' };
     if (q.session === 'mirror') return { cls: 'mirror', text: 'z serwera' };
@@ -1570,6 +1782,7 @@ var UI = {
     return { cls: 'cache', text: 'z pamięci (' + (q.origin === 'file' ? 'plik' : 'serwer') + ')' };
   },
 
+  /** Panel „Źródła danych”: chipy notowań, chipy kursów walut i panel trybu awaryjnego dla braków. */
   renderStatus: function () {
     var tickers = UI.neededTickers(), bench = UI.state.settings.benchmark, missing = [];
     var html = tickers.map(function (t) {
@@ -1581,6 +1794,7 @@ var UI = {
         (t === bench ? '<span class="muted">(benchmark)</span>' : '') + '<span>' + UI.esc(lab.text) + '</span>' +
         (last ? '<span class="muted">ost. ' + Fmt.date(last) + '</span>' : '') + '</span>';
     });
+    // Waluty potrzebne aktywnemu portfelowi (GBp → GBP itd.)
     var fxCodes = {};
     UI.active().transactions.forEach(function (t) { var c = Util.ccyInfo(DataSource.currencyOf(t.ticker) || t.currency).code; if (c !== 'PLN') fxCodes[c] = true; });
     Object.keys(fxCodes).sort().forEach(function (c) {
@@ -1596,6 +1810,7 @@ var UI = {
   /** Tryb awaryjny: walory bez notowań – link do Stooq (gdy istnieje) + wybór pliku. */
   renderManualPanel: function (missing) {
     var el = UI.$('manualPanel');
+    // W trakcie synchronizacji panel ukryty – braki mogą być zaraz uzupełnione
     if (!missing.length || DataSource.syncing) { el.classList.add('hidden'); el.innerHTML = ''; return; }
     el.classList.remove('hidden');
     var reason = DataSource.mirrorError ? 'Serwer danych jest niedostępny (' + UI.esc(DataSource.mirrorError) + ').'
@@ -1610,6 +1825,7 @@ var UI = {
       }).join('') + '</ul>';
   },
 
+  /** Kolumny tabeli pozycji: key – pole do sortowania, fmt – HTML komórki. */
   positionColumns: [
     { key: 'ticker', label: 'Walor', fmt: function (p) {
       return '<b>' + UI.esc(p.ticker) + '</b>' + (p.closed ? ' <span class="tag">zamknięta</span>' : '') + '<div class="name">' + UI.esc(DataSource.nameOf(p.ticker)) + '</div>'; } },
@@ -1627,6 +1843,7 @@ var UI = {
     { key: 'weight', label: 'Udział', fmt: function (p) { return p.closed ? '—' : Fmt.pctPlain(p.weight); } }
   ],
 
+  /** Pozycje posortowane wg UI.ui.sort; zamknięte zawsze na końcu, puste wartości (null/NaN) też na końcu. */
   sortedPositions: function () {
     var s = UI.ui.sort;
     return UI.calc.positions.slice().sort(function (a, b) {
@@ -1638,6 +1855,7 @@ var UI = {
     });
   },
 
+  /** Tabela pozycji z nagłówkiem sortowania (aria-sort) i wierszem sum. */
   renderPositions: function () {
     var cols = UI.positionColumns, s = UI.ui.sort, list = UI.sortedPositions(), T = UI.calc.totals;
     var head = '<thead><tr>' + cols.map(function (c) {
@@ -1655,6 +1873,7 @@ var UI = {
     UI.$('posTable').innerHTML = head + body + foot;
   },
 
+  /** Tabela transakcji (najnowsze na górze); transakcje po dacie wyceny wyszarzone; kurs = ręczny lub NBP. */
   renderTxTable: function () {
     var p = UI.active(), asOf = UI.asOf(), ctx = UI.ctx();
     var txs = PortfolioEngine.sortTx(p.transactions).reverse();
@@ -1672,6 +1891,7 @@ var UI = {
     }).join('') + '</tbody>';
   },
 
+  /** Oba wykresy: wartość vs kapitał netto (PLN) oraz indeks TWR vs benchmark (100 = start). */
   renderCharts: function () {
     var S = UI.series, bench = UI.state.settings.benchmark;
     var bl = (Config.BENCHMARKS.filter(function (b) { return b[0] === bench; })[0] || [bench, bench])[1];
@@ -1700,6 +1920,8 @@ var UI = {
   },
 
   /* ---------- transakcje ---------- */
+  /** Odczyt formularza do obiektu transakcji. Waluta z manifestu; przy edycji tego samego waloru zostaje zapisana waluta.
+   *  fx tylko dla walut obcych i gdy wpisano dodatnią wartość. */
   readForm: function () {
     var $ = UI.$, sym = DataSource.resolveSymbol($('fTicker').value);
     var ccy = sym ? (DataSource.currencyOf(sym) || 'PLN') : 'PLN';
@@ -1716,6 +1938,8 @@ var UI = {
     };
   },
 
+  /** Walidacja transakcji. errors blokują zapis; warnings wymagają ponownego kliknięcia (zob. submitTx).
+   *  Sprawdza pola, spójność sprzedaży z całą historią, obecność waloru na serwerze, odchylenie ceny i dostępność kursu. */
   validateTx: function (tx, editId) {
     var errors = [], warnings = [], p = UI.active();
     if (!tx.ticker || !Util.isSym(tx.ticker)) errors.push('Podaj poprawny symbol waloru (np. PKN.WA, AAPL, SAP.DE).');
@@ -1725,6 +1949,7 @@ var UI = {
     if (!(tx.price > 0)) errors.push('Cena musi być większa od zera.');
     if (!(tx.fee >= 0)) errors.push('Prowizja nie może być ujemna.');
     if (errors.length) return { errors: errors, warnings: warnings };
+    // Symulacja: historia bez edytowanej transakcji + kandydat (z zachowanym seq) – wykrywa też psucie późniejszych sprzedaży
     var others = p.transactions.filter(function (t) { return t.id !== editId; });
     var seq = editId ? (p.transactions.filter(function (t) { return t.id === editId; })[0] || {}).seq : UI.state.seq;
     var candidate = Object.assign({ id: editId || '__new', seq: seq }, tx);
@@ -1738,6 +1963,7 @@ var UI = {
     }
     if (!DataSource.symbols[tx.ticker] && !DataSource.getRows(tx.ticker) && DataSource.manifest)
       warnings.push('Waloru ' + tx.ticker + ' nie ma na serwerze danych – wycena będzie możliwa po wczytaniu pliku CSV.');
+    // Odchylenie ceny sprawdzane tylko, gdy jest sesja dokładnie w dniu transakcji
     var q = PortfolioEngine.priceAt(DataSource.getRows(tx.ticker), tx.date);
     if (q && q.date === tx.date) {
       var dev = tx.price / q.close - 1;
@@ -1749,6 +1975,7 @@ var UI = {
     return { errors: errors, warnings: warnings };
   },
 
+  /** Podpowiedź pod formularzem (nazwa, zamknięcie z dnia, kurs NBP, posiadana ilość) oraz etykiety waluty i pole kursu. */
   updateTxHint: function () {
     var tx = UI.readForm(), el = UI.$('txHint'), info = Util.ccyInfo(tx.currency);
     var lbl = tx.currency === 'GBp' ? '(GBp – pensy)' : '(' + (tx.currency || 'PLN') + ')';
@@ -1774,9 +2001,12 @@ var UI = {
     el.textContent = parts.join(' · ');
   },
 
+  /** Zapis transakcji (nowej lub edytowanej) po walidacji. */
   submitTx: function () {
     var tx = UI.readForm(), editId = UI.ui.editId, res = UI.validateTx(tx, editId), msg = UI.$('txMsg');
     if (res.errors.length) { msg.innerHTML = '<div class="notice err">' + res.errors.map(UI.esc).join('<br>') + '</div>'; return; }
+    // Ostrzeżenia: pierwsze kliknięcie je pokazuje i zapamiętuje klucz (JSON danych); drugie kliknięcie z tymi samymi
+    // danymi zapisuje. Każda zmiana pola zeruje pendingWarnKey (zob. bindEvents).
     var warnKey = JSON.stringify(tx);
     if (res.warnings.length && UI.ui.pendingWarnKey !== warnKey) {
       UI.ui.pendingWarnKey = warnKey;
@@ -1787,6 +2017,7 @@ var UI = {
     var p = UI.active();
     if (editId) {
       var t = p.transactions.filter(function (x) { return x.id === editId; })[0];
+      // usunięcie starego fx – inaczej ręczny kurs zostałby po wyczyszczeniu pola
       if (t) { delete t.fx; Object.assign(t, tx); }
     } else {
       p.transactions.push(Object.assign({ id: Util.uid(), seq: UI.state.seq++ }, tx));
@@ -1794,6 +2025,7 @@ var UI = {
     UI.save();
     var wasEdit = !!editId;
     UI.cancelEdit();
+    // walor i data zostają w formularzu – ułatwia wpisywanie kolejnych transakcji
     UI.$('fTicker').value = tx.ticker; UI.$('fDate').value = tx.date;
     msg.innerHTML = '<div class="notice ok">' + (wasEdit ? 'Zmieniono transakcję.' : 'Dodano transakcję.') + '</div>';
     setTimeout(function () { if (msg.querySelector('.ok')) msg.innerHTML = ''; }, 2500);
@@ -1801,6 +2033,7 @@ var UI = {
     UI.ensureData([tx.ticker]);
   },
 
+  /** Wczytuje transakcję do formularza w trybie edycji. */
   startEdit: function (id) {
     var t = UI.active().transactions.filter(function (x) { return x.id === id; })[0]; if (!t) return;
     var $ = UI.$;
@@ -1813,6 +2046,7 @@ var UI = {
     UI.updateTxHint();
   },
 
+  /** Wyjście z trybu edycji i wyczyszczenie pól liczbowych (walor i data zostają). */
   cancelEdit: function () {
     var $ = UI.$;
     UI.ui.editId = null; UI.ui.pendingWarnKey = null;
@@ -1821,6 +2055,7 @@ var UI = {
     $('fQty').value = ''; $('fPrice').value = ''; $('fFee').value = '0'; $('fFx').value = ''; $('txMsg').innerHTML = '';
   },
 
+  /** Usunięcie transakcji – zablokowane, gdy późniejsza sprzedaż straciłaby pokrycie (np. usunięcie kupna). */
   deleteTx: function (id) {
     var p = UI.active(), t = p.transactions.filter(function (x) { return x.id === id; })[0]; if (!t) return;
     var rest = p.transactions.filter(function (x) { return x.id !== id; });
@@ -1833,6 +2068,8 @@ var UI = {
   },
 
   /* ---------- import CSV (tryb awaryjny) ---------- */
+  /** Import plików CSV z notowaniami. Symbol: wymuszony (pole przy walorze w panelu braków), z nazwy pliku
+   *  albo podany przez użytkownika. Na końcu zapis cache, przeliczenie i dociągnięcie kursów walut. */
   importCsvFiles: function (fileList, forcedTicker) {
     var files = Array.prototype.slice.call(fileList || []);
     if (!files.length) return;
@@ -1855,6 +2092,7 @@ var UI = {
     });
   },
 
+  /** Test połączenia z lustrem, NBP i Stooq (Stooq zwykle niedostępny z przeglądarki – brak CORS). */
   runDiagnostics: function () {
     var out = UI.$('diagOut');
     out.innerHTML = '<div class="notice">Sprawdzanie połączeń…</div>';
@@ -1875,6 +2113,7 @@ var UI = {
   },
 
   /* ---------- eksport / import ---------- */
+  /** Eksport stanu do JSON; opcjonalnie z notowaniami i kursami (przyciętymi do cacheCutoff, ostatni wiersz zawsze). */
   exportJson: function () {
     var data = { app: Config.APP_ID, version: Config.VERSION, exportedAt: new Date().toISOString(), state: UI.state };
     if (UI.$('chkExportQuotes').checked) {
@@ -1892,6 +2131,8 @@ var UI = {
     UI.download('portfel-' + Util.todayISO() + '.json', JSON.stringify(data, null, 1), 'application/json');
   },
 
+  /** Import JSON (eksport tej aplikacji, także z wersji 1): walidacja, potwierdzenie, zastąpienie stanu,
+   *  wczytanie dołączonych notowań i kursów. */
   importJsonFile: function (file) {
     UI.readFile(file).then(function (text) {
       var data = JSON.parse(text.replace(/^\uFEFF/, ''));
@@ -1905,6 +2146,7 @@ var UI = {
       var valid = function (rows) { return (rows || []).filter(function (r) { return Util.isISODate(r[0]) && r[1] > 0; }).sort(function (a, b) { return a[0] < b[0] ? -1 : 1; }); };
       if (data.quotes) Object.keys(data.quotes).forEach(function (t) {
         var q = data.quotes[t], rows = valid(q && q.rows), sym = legacy ? UI.migrateTicker(t) : Util.normSym(t);
+        // dawne źródło 'net' (wersja 1) zapisujemy jako 'file' – dane pochodzą z pliku importu
         if (rows.length) DataSource.quotes[sym] = { rows: rows, origin: q.origin === 'net' ? 'file' : (q.origin || 'file'), fetchedAt: q.fetchedAt || null, session: 'file' };
       });
       if (data.fx) Object.keys(data.fx).forEach(function (c) {
@@ -1917,9 +2159,11 @@ var UI = {
     }).catch(function (e) { alert('Błąd importu JSON: ' + e.message); });
   },
 
+  /** Eksport pozycji do CSV dla polskiego Excela: średnik, przecinek dziesiętny, BOM (UTF-8), CRLF. */
   exportPositionsCsv: function () {
     var list = UI.sortedPositions(), asOf = UI.asOf();
     var header = ['Walor', 'Nazwa', 'Waluta', 'Ilość', 'Śr. cena zakupu', 'Kurs', 'Data kursu', 'Kurs waluty PLN', 'Koszt PLN', 'Wartość PLN', 'Zysk/strata PLN', 'Zysk/strata %', 'Zysk zrealizowany FIFO PLN', 'Udział %'];
+    // cudzysłów wokół pola zawierającego separator, cudzysłów lub nową linię
     var q = function (s) { s = String(s == null ? '' : s); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
     var lines = [header.join(';')].concat(list.map(function (p) {
       var info = Util.ccyInfo(p.currency);
@@ -1931,6 +2175,7 @@ var UI = {
     UI.download('pozycje-' + name + '-' + asOf + '.csv', '\uFEFF' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
   },
 
+  /** Uruchamia testy i pokazuje wyniki; atrybut data-selftest na <body> służy do automatycznej weryfikacji (headless). */
   showSelfTests: function () {
     var r = runSelfTests();
     UI.$('selftestCard').classList.remove('hidden');
@@ -1943,12 +2188,15 @@ var UI = {
 /* =============================================================================
  * Testy – uruchom z konsoli: runSelfTests()
  * ========================================================================== */
+/** Zestaw testów jednostkowych silnika, parsera CSV i migracji. Zwraca { ok, failed, results }. */
 function runSelfTests() {
   var results = [];
+  // t(nazwa, fn): fn zwraca true (zaliczony) albo opis błędu; wyjątek = test niezaliczony
   var t = function (name, fn) {
     try { var d = fn(); results.push({ name: name, ok: d === true, detail: d === true ? '' : String(d) }); }
     catch (e) { results.push({ name: name, ok: false, detail: 'wyjątek: ' + e.message }); }
   };
+  // near: porównanie liczb z tolerancją; tx: fabryka transakcji (domyślnie PLN); pln: kontekst bez walut obcych
   var near = function (a, b, eps) { return Math.abs(a - b) <= (eps || 1e-6) ? true : ('oczekiwano ' + b + ', jest ' + a); };
   var tx = function (id, ticker, type, date, qty, price, fee, extra) {
     return Object.assign({ id: id, seq: id, ticker: ticker, type: type, date: date, qty: qty, price: price, fee: fee || 0, currency: 'PLN' }, extra || {});
@@ -2037,7 +2285,8 @@ function runSelfTests() {
   t('Symbol z nazwy pliku (Stooq i lustro)', function () {
     var c = [['pkn_d.csv', 'PKN.WA'], ['WIG20_d (1).csv', 'WIG20.WA'], ['C:\\Pobrane\\cdr_d.csv', 'CDR.WA'], ['11b_d.csv', '11B.WA'],
       ['aapl_us_d.csv', 'AAPL'], ['vod_uk_d.csv', 'VOD.L'], ['7203_jp_d.csv', '7203.T'], ['sap_de_d.csv', 'SAP.DE'],
-      ['PKN.WA.csv', 'PKN.WA'], ['_GSPC.csv', '^GSPC'], ['ERIC-B.ST.csv', 'ERIC-B.ST'], ['^spx_d.csv', '^GSPC']];
+      ['PKN.WA.csv', 'PKN.WA'], ['_GSPC.csv', '^GSPC'], ['ERIC-B.ST.csv', 'ERIC-B.ST'], ['^spx_d.csv', '^GSPC'], ['~CON.DE.csv', 'CON.DE']];
+    if (Util.symFile('CON.DE') !== '~CON.DE.csv' || Util.symFile('^GSPC') !== '_GSPC.csv' || Util.symFile('CONA.DE') !== 'CONA.DE.csv') return 'Util.symFile: zła nazwa pliku';
     for (var i = 0; i < c.length; i++) if (DataSource.symbolFromFilename(c[i][0]) !== c[i][1]) return c[i][0] + ' → ' + DataSource.symbolFromFilename(c[i][0]);
     return true;
   });
@@ -2094,6 +2343,7 @@ function runSelfTests() {
   return { ok: failed === 0, failed: failed, results: results };
 }
 
+// Start aplikacji po załadowaniu DOM (warunek typeof pozwala wczytać skrypt także poza przeglądarką, np. do testów)
 if (typeof document !== 'undefined') {
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', UI.init); else UI.init();
 }
