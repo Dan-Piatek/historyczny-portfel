@@ -277,6 +277,16 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
         <button id="btnRenamePortfolio">Zmień nazwę</button>
         <button id="btnDeletePortfolio" class="danger">Usuń</button>
       </div>
+      <!-- Gotowe portfele: szablon + data startu + kwota → transakcje kupna po cenach zamknięcia -->
+      <details class="settings" id="tplBox">
+        <summary>Gotowy portfel z szablonu…</summary>
+        <select id="tplSelect" aria-label="Szablon portfela" style="width:100%;margin-top:6px"></select>
+        <div id="tplDesc" class="small-text muted" style="margin:6px 0"></div>
+        <label class="small-text muted">Data zakupu<input type="date" id="tplDate"></label>
+        <label class="small-text muted">Kwota (PLN)<input type="number" id="tplAmount" min="1" step="any" value="10000"></label>
+        <div class="btn-row"><button id="btnTplCreate" class="small primary">Utwórz portfel</button></div>
+        <div id="tplMsg" class="small-text"></div>
+      </details>
     </div>
 
     <!-- Notowania: status synchronizacji, diagnostyka, tryb awaryjny CSV, adres serwera danych -->
@@ -396,7 +406,7 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
 
     <!-- Lista transakcji z akcjami Edytuj / Usuń -->
     <div class="card">
-      <h2>Transakcje</h2>
+      <h2>Transakcje <span class="spacer"></span><button id="btnClearTx" class="small danger" title="Usuń wszystkie transakcje z tego portfela">Usuń wszystkie</button></h2>
       <div class="table-wrap"><table id="txTable"></table></div>
     </div>
 
@@ -469,6 +479,40 @@ var Config = {
     return 'https://api.nbp.pl/api/exchangerates/rates/a/' + encodeURIComponent(code.toLowerCase()) + '/' + from + '/' + to + '/?format=json';
   },
   // Lista zapasowa do autouzupełniania, gdy manifest jest niedostępny
+  // Gotowe portfele (szablony). Składniki tylko z aktualnej listy walorów serwera (GPW, USA – DJIA, Niemcy – DAX).
+  // items: [symbol, waga] – kwota dzielona proporcjonalnie do wag. Indeksy w portfelu pasywnym to przybliżenie funduszy ETF.
+  TEMPLATES: [
+    { id: 'pl-banks', group: 'Branże', name: 'Banki – Polska', desc: 'Największe banki notowane na GPW, równe wagi.',
+      items: [['PKO.WA', 1], ['PEO.WA', 1], ['EBP.WA', 1], ['MBK.WA', 1], ['ALR.WA', 1], ['ING.WA', 1], ['MIL.WA', 1], ['BHW.WA', 1]] },
+    { id: 'fin-us-de', group: 'Branże', name: 'Finanse – USA i Niemcy', desc: 'Banki, ubezpieczyciele i operatorzy płatności z DJIA i DAX.',
+      items: [['JPM', 1], ['GS', 1], ['AXP', 1], ['V', 1], ['ALV.DE', 1], ['MUV2.DE', 1], ['DBK.DE', 1], ['DB1.DE', 1]] },
+    { id: 'tech-us', group: 'Branże', name: 'Technologie – USA', desc: 'Spółki technologiczne z Dow Jones.',
+      items: [['AAPL', 1], ['MSFT', 1], ['NVDA', 1], ['GOOGL', 1], ['AMZN', 1], ['CRM', 1], ['CSCO', 1], ['IBM', 1]] },
+    { id: 'tech-pl', group: 'Branże', name: 'Technologie i gry – Polska', desc: 'Informatyka, gry i fintech z GPW.',
+      items: [['CDR.WA', 1], ['ACP.WA', 1], ['ASE.WA', 1], ['TEN.WA', 1], ['TXT.WA', 1], ['XTB.WA', 1], ['VRC.WA', 1], ['CBF.WA', 1]] },
+    { id: 'energy', group: 'Branże', name: 'Energetyka i surowce', desc: 'Paliwa, energetyka i miedź – Polska, USA, Niemcy.',
+      items: [['PKN.WA', 1], ['PGE.WA', 1], ['TPE.WA', 1], ['KGH.WA', 1], ['CVX', 1], ['RWE.DE', 1], ['EOAN.DE', 1], ['ENR.DE', 1]] },
+    { id: 'auto-de', group: 'Branże', name: 'Motoryzacja – Niemcy', desc: 'Producenci samochodów i dostawcy z DAX.',
+      items: [['VOW3.DE', 1], ['BMW.DE', 1], ['MBG.DE', 1], ['PAH3.DE', 1], ['CON.DE', 1], ['DTG.DE', 1]] },
+    { id: 'industry', group: 'Branże', name: 'Przemysł i zbrojeniówka', desc: 'Przemysł, lotnictwo i obronność.',
+      items: [['RHM.DE', 1], ['AIR.DE', 1], ['MTX.DE', 1], ['SIE.DE', 1], ['CAT', 1], ['HON', 1], ['BA', 1], ['LBW.WA', 1]] },
+    { id: 'consumer', group: 'Branże', name: 'Konsumpcja i handel', desc: 'Handel detaliczny i marki konsumenckie.',
+      items: [['DNP.WA', 1], ['LPP.WA', 1], ['ZAB.WA', 1], ['ALE.WA', 1], ['WMT', 1], ['KO', 1], ['PG', 1], ['MCD', 1], ['ADS.DE', 1]] },
+    { id: 'health', group: 'Branże', name: 'Ochrona zdrowia', desc: 'Farmacja, ubezpieczenia zdrowotne i sprzęt medyczny.',
+      items: [['JNJ', 1], ['UNH', 1], ['MRK', 1], ['AMGN', 1], ['SHL.DE', 1], ['BAYN.DE', 1], ['FRE.DE', 1], ['NEU.WA', 1]] },
+    { id: 'bluechips', group: 'Strategie', name: 'Blue chips – trzy rynki', desc: 'Liderzy GPW, USA i Niemiec po równo.',
+      items: [['PKO.WA', 1], ['PKN.WA', 1], ['PZU.WA', 1], ['AAPL', 1], ['MSFT', 1], ['JPM', 1], ['SAP.DE', 1], ['SIE.DE', 1], ['ALV.DE', 1]] },
+    { id: 'dividend', group: 'Strategie', name: 'Dywidendowa', desc: 'Spółki znane z wysokich dywidend. Uwaga: aplikacja nie dolicza dywidend, więc wynik jest zaniżony.',
+      items: [['PZU.WA', 1], ['PKO.WA', 1], ['KTY.WA', 1], ['OPL.WA', 1], ['KO', 1], ['PG', 1], ['JNJ', 1], ['CVX', 1], ['ALV.DE', 1], ['MUV2.DE', 1], ['DTE.DE', 1]] },
+    { id: 'growth', group: 'Strategie', name: 'Wzrostowa', desc: 'Spółki o szybkim wzroście przychodów – wyższe ryzyko.',
+      items: [['NVDA', 1], ['MSFT', 1], ['AMZN', 1], ['GOOGL', 1], ['DNP.WA', 1], ['XTB.WA', 1], ['BFT.WA', 1], ['RHM.DE', 1], ['SAP.DE', 1]] },
+    { id: 'defensive', group: 'Strategie', name: 'Defensywna', desc: 'Dobra codziennego użytku, telekomy, ubezpieczenia – mniejsze wahania.',
+      items: [['KO', 1], ['PG', 1], ['JNJ', 1], ['WMT', 1], ['MCD', 1], ['DTE.DE', 1], ['BEI.DE', 1], ['HEN3.DE', 1], ['OPL.WA', 1], ['PZU.WA', 1]] },
+    { id: 'passive', group: 'Strategie', name: 'Pasywna – indeksy', desc: '30% WIG20TR i 20% mWIG40TR (ETF Beta), 30% S&P 500, 20% Euro Stoxx 50. Indeksy zagraniczne jako przybliżenie funduszy ETF; ETF Beta notowane od 2019 r.',
+      items: [['ETFBW20TR.WA', 30], ['ETFBM40TR.WA', 20], ['^GSPC', 30], ['^STOXX50E', 20]] },
+    { id: 'pl-mid', group: 'Strategie', name: 'Polskie średnie spółki', desc: 'Wybór z mWIG40 – spółki o średniej kapitalizacji.',
+      items: [['BFT.WA', 1], ['DOM.WA', 1], ['ASE.WA', 1], ['NEU.WA', 1], ['CAR.WA', 1], ['APR.WA', 1], ['TXT.WA', 1], ['WPL.WA', 1]] }
+  ],
   FALLBACK_SYMBOLS: [
     ['ALE.WA','Allegro'],['ALR.WA','Alior Bank'],['BDX.WA','Budimex'],['CDR.WA','CD Projekt'],['CPS.WA','Cyfrowy Polsat'],
     ['DNP.WA','Dino Polska'],['KGH.WA','KGHM'],['KRU.WA','Kruk'],['KTY.WA','Grupa Kęty'],['LPP.WA','LPP'],
@@ -1596,6 +1640,8 @@ var UI = {
 
     // --- tabele (delegacja zdarzeń): sortowanie po kliknięciu nagłówka – tekst rosnąco, liczby malejąco ---
     $('posTable').onclick = function (e) {
+      var del = e.target.closest('button[data-del-ticker]');
+      if (del) { UI.deletePosition(del.dataset.delTicker); return; }
       var th = e.target.closest('th[data-key]'); if (!th) return;
       var k = th.dataset.key, s = UI.ui.sort;
       if (s.key === k) s.dir = -s.dir; else { s.key = k; s.dir = k === 'ticker' || k === 'currency' ? 1 : -1; }
@@ -1605,6 +1651,22 @@ var UI = {
       var b = e.target.closest('button[data-act]'); if (!b) return;
       if (b.dataset.act === 'edit') UI.startEdit(b.dataset.id); else UI.deleteTx(b.dataset.id);
     };
+    $('btnClearTx').onclick = UI.clearTransactions;
+
+    // --- szablony portfeli ---
+    var groups = {};
+    Config.TEMPLATES.forEach(function (t) { (groups[t.group] = groups[t.group] || []).push(t); });
+    $('tplSelect').innerHTML = Object.keys(groups).map(function (g) {
+      return '<optgroup label="' + UI.esc(g) + '">' + groups[g].map(function (t) { return '<option value="' + t.id + '">' + UI.esc(t.name) + '</option>'; }).join('') + '</optgroup>';
+    }).join('');
+    var showTpl = function () {
+      var t = Config.TEMPLATES.filter(function (x) { return x.id === $('tplSelect').value; })[0];
+      $('tplDesc').textContent = t ? t.desc + ' Skład: ' + t.items.map(function (i) { return i[0]; }).join(', ') + '.' : '';
+    };
+    $('tplSelect').onchange = showTpl; showTpl();
+    $('tplDate').max = Util.todayISO();
+    $('tplDate').value = Util.addDays(Util.todayISO(), -5 * 365);   // domyślnie: 5 lat temu
+    $('btnTplCreate').onclick = UI.createFromTemplate;
 
     // --- notowania: odświeżanie, diagnostyka, import CSV, adres serwera danych ---
     $('btnRefresh').onclick = function () { UI.sync(false, true); };
@@ -1869,14 +1931,16 @@ var UI = {
       return '<th class="sortable" data-key="' + c.key + '" aria-sort="' + (s.key === c.key ? (s.dir > 0 ? 'ascending' : 'descending') : 'none') + '">' + c.label +
         (s.key === c.key ? '<span class="arrow">' + (s.dir > 0 ? '▲' : '▼') + '</span>' : '') + '</th>';
     }).join('') + '</tr></thead>';
-    if (!list.length) { UI.$('posTable').innerHTML = head + '<tbody><tr><td colspan="' + cols.length + '" class="muted left">Brak pozycji.</td></tr></tbody>'; return; }
+    head = head.replace('</tr></thead>', '<th></th></tr></thead>');   // kolumna akcji (usuwanie) – bez sortowania
+    if (!list.length) { UI.$('posTable').innerHTML = head + '<tbody><tr><td colspan="' + (cols.length + 1) + '" class="muted left">Brak pozycji.</td></tr></tbody>'; return; }
     var body = '<tbody>' + list.map(function (p) {
-      return '<tr class="' + (p.closed ? 'closed' : '') + '">' + cols.map(function (c) { return '<td>' + c.fmt(p) + '</td>'; }).join('') + '</tr>';
+      return '<tr class="' + (p.closed ? 'closed' : '') + '">' + cols.map(function (c) { return '<td>' + c.fmt(p) + '</td>'; }).join('') +
+        '<td><button class="link small danger" data-del-ticker="' + UI.esc(p.ticker) + '" title="Usuń wszystkie transakcje tego waloru">Usuń</button></td></tr>';
     }).join('') + '</tbody>';
     var foot = '<tfoot><tr><td>Razem</td><td></td><td></td><td></td><td>' + Fmt.pln(T.cost) + '</td><td>' + Fmt.pln(T.value) + '</td>' +
       '<td class="' + Fmt.cls(T.unrealized) + '">' + Fmt.plnSigned(T.unrealized) + '</td><td class="' + Fmt.cls(T.unrealized) + '">' + Fmt.pct(T.cost > 0 ? T.unrealized / T.cost : null) + '</td>' +
-      '<td class="' + Fmt.cls(T.realized) + '">' + Fmt.plnSigned(T.realized) + '</td><td></td></tr>' +
-      '<tr><td colspan="' + cols.length + '" class="left muted small-text" style="font-weight:normal">* średnia cena otwartych partii (FIFO) z prowizją kupna, w walucie notowań. Koszt i wartość w PLN po kursach NBP z dnia transakcji / wyceny.</td></tr></tfoot>';
+      '<td class="' + Fmt.cls(T.realized) + '">' + Fmt.plnSigned(T.realized) + '</td><td></td><td></td></tr>' +
+      '<tr><td colspan="' + (cols.length + 1) + '" class="left muted small-text" style="font-weight:normal">* średnia cena otwartych partii (FIFO) z prowizją kupna, w walucie notowań. Koszt i wartość w PLN po kursach NBP z dnia transakcji / wyceny.</td></tr></tfoot>';
     UI.$('posTable').innerHTML = head + body + foot;
   },
 
@@ -2096,6 +2160,66 @@ var UI = {
     p.transactions = rest;
     if (UI.ui.editId === id) UI.cancelEdit();
     UI.save(); UI.renderAll();
+  },
+
+  /** Usunięcie pozycji = wszystkich transakcji danego waloru w aktywnym portfelu (inne walory nie są naruszone). */
+  deletePosition: function (ticker) {
+    var p = UI.active(), n = p.transactions.filter(function (t) { return t.ticker === ticker; }).length;
+    if (!n || !confirm('Usunąć pozycję ' + ticker + ' – ' + n + ' ' + (n === 1 ? 'transakcję' : 'transakcje/transakcji') + ' z portfela „' + p.name + '”?')) return;
+    p.transactions = p.transactions.filter(function (t) { return t.ticker !== ticker; });
+    UI.cancelEdit(); UI.save(); UI.renderAll();
+  },
+
+  /** Usunięcie wszystkich transakcji aktywnego portfela (sam portfel zostaje). */
+  clearTransactions: function () {
+    var p = UI.active();
+    if (!p.transactions.length || !confirm('Usunąć wszystkie ' + p.transactions.length + ' transakcje z portfela „' + p.name + '”?')) return;
+    p.transactions = [];
+    UI.cancelEdit(); UI.save(); UI.renderAll();
+  },
+
+  /** Tworzy nowy portfel z szablonu: dla każdego składnika kupno za (kwota × waga) po cenie zamknięcia z wybranego dnia,
+   *  przeliczone kursem NBP na walutę notowań. Jeśli walor zaczął być notowany później – kupno w pierwszym dniu notowań. */
+  createFromTemplate: function () {
+    var $ = UI.$, msg = $('tplMsg');
+    var tpl = Config.TEMPLATES.filter(function (x) { return x.id === $('tplSelect').value; })[0];
+    var date = $('tplDate').value, amount = DataSource.parseNumber($('tplAmount').value);
+    if (!tpl) return;
+    if (!Util.isISODate(date) || date > Util.todayISO() || date < '2002-01-02') { msg.innerHTML = '<div class="notice err">Podaj datę od 2002-01-02 do dziś.</div>'; return; }
+    if (!(amount > 0)) { msg.innerHTML = '<div class="notice err">Podaj kwotę większą od zera.</div>'; return; }
+    if (!DataSource.manifest) { msg.innerHTML = '<div class="notice err">Brak połączenia z serwerem danych – szablony wymagają notowań.</div>'; return; }
+    $('btnTplCreate').disabled = true;
+    msg.innerHTML = '<div class="notice">Pobieranie notowań składników…</div>';
+    var syms = tpl.items.map(function (i) { return i[0]; });
+    // 1) notowania składników od wybranej daty, 2) kursy walut, w których są notowane
+    Promise.all(syms.map(function (s) { return DataSource.ensureSymbol(s, date); })).then(function () {
+      var codes = {};
+      syms.forEach(function (s) { var c = Util.ccyInfo(DataSource.currencyOf(s)).code; if (c !== 'PLN') codes[c] = true; });
+      return Promise.all(Object.keys(codes).map(function (c) { return DataSource.ensureFx(c, Util.addDays(date, -10)); }));
+    }).then(function () {
+      var ctx = UI.ctx(), sumW = tpl.items.reduce(function (s, i) { return s + i[1]; }, 0), txs = [], skipped = [], later = [];
+      tpl.items.forEach(function (it) {
+        var sym = it[0], rows = DataSource.getRows(sym);
+        if (!rows) { skipped.push(sym + ' (brak notowań)'); return; }
+        // cena z dnia (lub ostatniej sesji przed nim); gdy walor notowany później – pierwsza sesja po dacie
+        var q = PortfolioEngine.priceAt(rows, date);
+        if (!q) { var r = rows.filter(function (x) { return x[0] >= date; })[0]; if (r) { q = { date: r[0], close: r[1] }; later.push(sym + ' od ' + Fmt.date(r[0])); } }
+        if (!q) { skipped.push(sym + ' (brak notowań)'); return; }
+        var ccy = DataSource.currencyOf(sym) || 'PLN', rate = PortfolioEngine.fxRate(ctx, ccy, q.date);
+        if (rate == null) { skipped.push(sym + ' (brak kursu ' + Util.ccyInfo(ccy).code + ')'); return; }
+        var qty = Math.round(amount * it[1] / sumW / rate / q.close * 1e4) / 1e4;   // kwota PLN → waluta notowań → liczba akcji
+        if (!(qty > 0)) { skipped.push(sym); return; }
+        txs.push({ id: Util.uid(), seq: UI.state.seq++, ticker: sym, type: 'BUY', date: q.date, qty: qty, price: q.close, fee: 0, currency: ccy });
+      });
+      if (!txs.length) { msg.innerHTML = '<div class="notice err">Nie udało się kupić żadnego składnika: ' + UI.esc(skipped.join(', ')) + '</div>'; return; }
+      var p = { id: Util.uid(), name: tpl.name + ' (od ' + Fmt.date(date) + ')', created: Util.todayISO(), transactions: txs };
+      UI.state.portfolios.push(p); UI.state.activeId = p.id;
+      UI.cancelEdit(); UI.save(); DataSource.saveCache(UI.cacheCutoff()); UI.renderAll();
+      msg.innerHTML = '<div class="notice ok">Utworzono portfel: ' + txs.length + ' walorów.' +
+        (later.length ? '<br>Kupione później (notowane od): ' + UI.esc(later.join(', ')) + '.' : '') +
+        (skipped.length ? '<br>Pominięte: ' + UI.esc(skipped.join(', ')) + '.' : '') + '</div>';
+    }).catch(function (e) { msg.innerHTML = '<div class="notice err">' + UI.esc(e.message) + '</div>'; })
+      .finally(function () { $('btnTplCreate').disabled = false; });
   },
 
   /* ---------- import CSV (tryb awaryjny) ---------- */
