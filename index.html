@@ -435,6 +435,8 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
         <h2>Stopa zwrotu vs benchmark <span class="muted small-text">(100 = dzień 1. transakcji, w PLN)</span></h2>
         <div class="legend" id="legendReturn"></div>
         <div class="chart-wrap"><canvas id="chartReturn" role="img" aria-label="Wykres stopy zwrotu na tle benchmarku"></canvas><div class="tooltip hidden"></div></div>
+        <!-- Inflacja w kolejnych latach okresu – iloczyn tych wartości daje inflację łączną -->
+        <div id="inflBreakdown" class="small-text muted" style="margin-top:6px"></div>
       </div>
     </div>
 
@@ -809,7 +811,7 @@ var DataSource = {
     var mc = Storage.get(Config.STORAGE_MACRO) || {};
     Object.keys(mc).forEach(function (k) {
       var rows = DataSource.unpackRows(mc[k].d);
-      if (rows.length) DataSource.macro[k] = { rows: rows, origin: mc[k].o, session: 'cache' };
+      if (rows.length) DataSource.macro[k] = { rows: rows, origin: mc[k].o, src: mc[k].s || 'HICP', session: 'cache' };
     });
   },
   /** Zapis cache. Dane z lustra są przycinane do potrzebnego zakresu (można je pobrać ponownie). */
@@ -827,7 +829,7 @@ var DataSource = {
           var i = 0; while (i < rows.length - 1 && rows[i][0] < cutoff) i++;
           if (i > 0) { rows = rows.slice(i); tr = true; }
         }
-        out[k] = { o: q.origin, f: q.fetchedAt, d: DataSource.packRows(rows), tr: tr || q.trimmed || undefined };
+        out[k] = { o: q.origin, f: q.fetchedAt, d: DataSource.packRows(rows), tr: tr || q.trimmed || undefined, s: q.src };   // s – źródło inflacji (GUS | HICP)
       });
       return out;
     };
@@ -837,25 +839,26 @@ var DataSource = {
     return a && b && c;
   },
 
-  /** Inflacja PL (HICP, indeks 2015=100, wartość miesiąca pod 15. dniem): lustro, a gdy niedostępne – Eurostat bezpośrednio. */
+  /** Inflacja PL (indeks cen, wartość miesiąca pod 15. dniem): lustro (CPI GUS, zapasowo HICP), a gdy niedostępne –
+   *  HICP prosto z Eurostatu. Źródło trafia do macro.CPI_PL.src ('GUS' | 'HICP'). */
   ensureMacro: function () {
     var cur = DataSource.macro.CPI_PL, has = cur && cur.rows && cur.rows.length;
     var mInfo = DataSource.manifest && DataSource.manifest.macro && DataSource.manifest.macro.CPI_PL;
-    if (mInfo && has && cur.rows[cur.rows.length - 1][0] >= mInfo[1]) return Promise.resolve(false);
+    if (mInfo && has && cur.rows[cur.rows.length - 1][0] >= mInfo[1] && cur.src === (mInfo[2] || 'HICP')) return Promise.resolve(false);
     if (!mInfo && has && cur.session !== 'cache') return Promise.resolve(false);   // już pobrane z Eurostatu w tej sesji
     var fromMirror = mInfo
       ? DataSource.getText(DataSource.dataUrl + 'macro/CPI_PL.csv?v=' + encodeURIComponent(DataSource.manifest.generated)).then(function (t) { return DataSource.parseCSV(t).rows; })
       : Promise.reject(new Error('brak w manifeście'));
-    return fromMirror.then(function (rows) { return { rows: rows, origin: 'mirror' }; }, function () {
+    return fromMirror.then(function (rows) { return { rows: rows, origin: 'mirror', src: mInfo[2] || 'HICP' }; }, function () {
       // JSON-stat: value[pozycja], dimension.time.category.index[miesiąc] = pozycja
       return DataSource.getText(Config.EUROSTAT_HICP_PL).then(function (t) {
         var j = JSON.parse(t), idx = j.dimension.time.category.index, rows = [];
         Object.keys(idx).sort().forEach(function (m) { var v = j.value[idx[m]]; if (v != null && /^\d{4}-\d{2}$/.test(m)) rows.push([m + '-15', +v]); });
-        return { rows: rows, origin: 'eurostat' };
+        return { rows: rows, origin: 'eurostat', src: 'HICP' };
       });
     }).then(function (r) {
       if (!r.rows.length) return false;
-      DataSource.macro.CPI_PL = { rows: r.rows, origin: r.origin, session: r.origin };
+      DataSource.macro.CPI_PL = { rows: r.rows, origin: r.origin, src: r.src, session: r.origin };
       return true;
     }).catch(function () { return false; });
   },
@@ -2065,6 +2068,34 @@ var UI = {
   },
 
   /** Kafelki podsumowania (wartość, kapitał, zysk, stopy zwrotu, obsunięcie, prowizje). */
+  /** Nazwa źródła inflacji do etykiet: CPI GUS (oficjalny) albo HICP Eurostat (zapas). */
+  cpiSourceLabel: function () {
+    var m = DataSource.macro.CPI_PL;
+    return m && m.src === 'GUS' ? 'CPI GUS' : 'HICP Eurostat';
+  },
+
+  /** Inflacja w kolejnych latach rozpatrywanego okresu: pierwszy rok od dnia startu do grudnia, pełne lata grudzień do
+   *  grudnia (tak publikuje GUS), ostatni rok od grudnia do dnia wyceny. Odcinki łączą się, więc ich iloczyn = inflacja łączna. */
+  inflationBreakdownHtml: function (S) {
+    var rows = DataSource.macro.CPI_PL ? DataSource.macro.CPI_PL.rows : null;
+    if (!S || !rows || !S.dates.length) return '';
+    var from = S.dates[0], to = S.dates[S.dates.length - 1], last = rows[rows.length - 1][0];
+    var end = to < last ? to : last, y0 = +from.slice(0, 4), y1 = +end.slice(0, 4), parts = [];
+    if (from >= end) return '';
+    for (var y = y0; y <= y1; y++) {
+      var s = y === y0 ? from : (y - 1) + '-12-15', e = y === y1 ? end : y + '-12-15';
+      var a = PortfolioEngine.interpAt(rows, s), b = PortfolioEngine.interpAt(rows, e);
+      if (a == null || b == null || e <= s) continue;
+      var lbl = String(y);
+      if (y === y0 && from.slice(5) > '01-15') lbl += ' (od ' + Fmt.date(from).slice(0, 5) + ')';
+      if (y === y1 && end.slice(5) < '12-15') lbl += ' (do ' + Fmt.monthYear(Util.dateMs(end)).split(' ')[0] + ')';
+      parts.push(lbl + ': <b>' + Fmt.pct(b / a - 1) + '</b>');
+    }
+    var total = PortfolioEngine.interpAt(rows, end) / PortfolioEngine.interpAt(rows, from) - 1;
+    return 'Inflacja (' + UI.cpiSourceLabel() + ') w kolejnych latach: ' + parts.join(' · ') +
+      ' → łącznie <b>' + Fmt.pct(total) + '</b> (wartości się mnożą, nie sumują)';
+  },
+
   /** Kafelki „Inflacja w okresie” i „Realna stopa zwrotu” (TWR skorygowany o inflację: (1+TWR)/(1+inflacja) − 1).
    *  k – funkcja budująca kafelek z renderKpis. */
   inflationKpis: function (k) {
@@ -2078,7 +2109,7 @@ var UI = {
     var annual = years >= 1 ? Math.pow(1 + infl, 1 / years) - 1 : null;
     var stale = S.cpiLastDate && S.cpiLastDate < to ? ' · dane do ' + Fmt.monthYear(Util.dateMs(S.cpiLastDate)) : '';
     return k('Inflacja w okresie', Fmt.pct(infl), 'od ' + Fmt.date(from) + (annual != null ? ', śr. ' + Fmt.pct(annual) + ' rocznie' : '') + stale, '',
-        'Zmiana wskaźnika cen konsumpcyjnych HICP dla Polski (Eurostat) od dnia pierwszej transakcji do dnia wyceny') +
+        'Skumulowana zmiana cen (' + UI.cpiSourceLabel() + ') od dnia pierwszej transakcji do dnia wyceny – rozbicie na lata pod wykresem stopy zwrotu') +
       k('Realna stopa zwrotu', Fmt.pct(real), 'TWR ' + Fmt.pct(twr) + ' po odjęciu inflacji', Fmt.cls(real),
         'Siła nabywcza portfela: (1 + stopa zwrotu TWR) / (1 + inflacja) − 1');
   },
@@ -2251,7 +2282,8 @@ var UI = {
       { label: bl + (hasBench ? '' : ' – brak danych'), values: S ? S.bench : [], color: '--s2', dash: true }
     ];
     var hasCpi = S && S.cpi && S.cpi.some(function (v) { return v != null; });
-    sr.push({ label: 'Inflacja PL (HICP)' + (hasCpi ? (S.cpiLastDate < S.dates[S.dates.length - 1] ? ', dane do ' + Fmt.monthYear(Util.dateMs(S.cpiLastDate)) : '') : ' – brak danych'),
+    UI.$('inflBreakdown').innerHTML = UI.inflationBreakdownHtml(S);
+    sr.push({ label: 'Inflacja PL (' + UI.cpiSourceLabel() + ')' + (hasCpi ? (S.cpiLastDate < S.dates[S.dates.length - 1] ? ', dane do ' + Fmt.monthYear(Util.dateMs(S.cpiLastDate)) : '') : ' – brak danych'),
       values: S && S.cpi ? S.cpi : [], color: '--s3', dash: true });
     Charts.legend(UI.$('legendReturn'), sr);
     Charts.draw(UI.$('chartReturn'), {

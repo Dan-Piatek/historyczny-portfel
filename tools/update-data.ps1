@@ -246,33 +246,97 @@ foreach ($code in $codes) {
 }
 Write-Host "Waluty: $($fxInfo.Keys -join ', ')"
 
-# ---------------------------------------------------------------- inflacja (Eurostat HICP, Polska)
-# Zharmonizowany wskaźnik cen konsumpcyjnych (HICP), indeks 2015=100, dane miesięczne od 1996 r.
-# Zbiór prc_hicp_minr (ECOICOP ver.2, od 2026 r.; stary prc_hicp_midx kończy się na 12.2025).
-# Oficjalny CPI GUS byłby lepszy, ale jego publiczny plik CSV nie jest aktualizowany na bieżąco.
-# Wartość miesiąca (średnia z miesiąca) zapisujemy pod 15. dniem – aplikacja interpoluje liniowo między miesiącami.
+# ---------------------------------------------------------------- inflacja PL (CPI GUS, zapasowo HICP Eurostat)
+# Wynik: macro/CPI_PL.csv – indeks cen miesięczny (średnia 2015 = 100), wartość miesiąca pod 15. dniem
+# (aplikacja interpoluje liniowo między miesiącami); macro/CPI_PL.src – nazwa źródła (GUS | HICP).
+#
+# 1) GUS: plik „Miesięczne wskaźniki cen towarów i usług konsumpcyjnych od 1982 r.” (CSV, Windows-1250, separator ;).
+#    Adres pliku zmienia się z każdą wersją (np. ..._8.csv), dlatego odczytujemy bieżący link ze strony GUS.
+#    Indeks budujemy łańcuchowo z wskaźników „Poprzedni miesiąc = 100” (wymagana ciągła seria miesięcy).
+# 2) Zapas: Eurostat HICP dla Polski (zbiór prc_hicp_minr, 2015=100) – nieco niższy od CPI GUS (inny koszyk).
 $macroInfo = [ordered]@{}
 New-Item -ItemType Directory -Force -Path (Join-Path $Out 'macro') | Out-Null
 $cpiPath = Join-Path (Join-Path $Out 'macro') 'CPI_PL.csv'
-try {
-  $r = Invoke-Get 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_minr?format=JSON&geo=PL&coicop18=TOTAL&unit=I15&lang=EN'
-  if ($r.status -ne 200) { throw "HTTP $($r.status)" }
-  $j = $r.body | ConvertFrom-Json   # ok. 20 kB – mieści się w limicie ConvertFrom-Json
-  # JSON-stat: "value" to słownik pozycja → wartość, "dimension.time.category.index" to miesiąc → pozycja
-  $cpi = New-Object 'System.Collections.Generic.SortedDictionary[string,string]'
-  foreach ($t in $j.dimension.time.category.index.PSObject.Properties) {
-    $v = $j.value.PSObject.Properties[[string]$t.Value]
-    if ($v -and $t.Name -match '^\d{4}-\d{2}$') { $cpi[$t.Name + '-15'] = ([double]$v.Value).ToString('0.###', $Inv) }
+$cpiSrcPath = Join-Path (Join-Path $Out 'macro') 'CPI_PL.src'
+
+# Indeks z miesięcznych zmian: słownik "RRRR-MM" → wskaźnik m/m (np. 100,3) → seria "RRRR-MM-15" → indeks (2015 = 100)
+# $dec (opcjonalnie): "RRRR-MM" → wskaźnik „grudzień poprzedniego roku = 100”. Od pierwszego roku, dla którego jest
+# komplet, indeks jest kotwiczony na grudniu poprzedniego roku – inaczej zaokrąglenia 500+ wskaźników m/m (do 0,1)
+# kumulują się i wyniki r/r odbiegają od publikowanych przez GUS o 0,1–0,2 pkt proc.
+function ConvertTo-CpiIndex($mm, $dec) {
+  $keys = @($mm.Keys | Sort-Object)
+  $raw = [ordered]@{}; $x = 1.0; $prev = $null
+  foreach ($k in $keys) {
+    if ($prev) {   # ciągłość: każdy kolejny miesiąc musi następować bezpośrednio po poprzednim
+      $exp = ([datetime]::ParseExact($prev + '-01', 'yyyy-MM-dd', $Inv)).AddMonths(1).ToString('yyyy-MM')
+      if ($k -ne $exp) { throw "luka w danych GUS: brak $exp" }
+    }
+    $x = $x * $mm[$k] / 100; $raw[$k] = $x; $prev = $k
   }
-  if ($cpi.Count -lt 100) { throw "za mało danych ($($cpi.Count) miesięcy)" }
-  Write-Series $cpiPath $cpi
-} catch { $errors += [ordered]@{ symbol = 'CPI_PL'; error = $_.Exception.Message }; Write-Host "  ! CPI_PL: $($_.Exception.Message)" }
-# Przy błędzie zostaje plik z poprzedniego przebiegu
+  if ($dec) {
+    # Kotwiczenie: I(m, R) = I(XII, R-1) × wskaźnik(m, R; XII R-1 = 100) / 100, rok po roku
+    foreach ($y in (@($dec.Keys | ForEach-Object { [int]$_.Substring(0, 4) }) | Sort-Object -Unique)) {
+      $anchorKey = '{0}-12' -f ($y - 1)
+      if (-not $raw.Contains($anchorKey)) { continue }
+      $anchor = $raw[$anchorKey]
+      for ($m = 1; $m -le 12; $m++) {
+        $k = '{0}-{1:D2}' -f $y, $m
+        if ($dec.ContainsKey($k) -and $raw.Contains($k)) { $raw[$k] = $anchor * $dec[$k] / 100 }
+      }
+    }
+    $x = $raw[$keys[-1]]
+  }
+  $base = @($raw.Keys | Where-Object { $_ -like '2015-*' } | ForEach-Object { $raw[$_] })
+  $avg = if ($base.Count -eq 12) { ($base | Measure-Object -Average).Average } else { $x }
+  $out = New-Object 'System.Collections.Generic.SortedDictionary[string,string]'
+  foreach ($k in $raw.Keys) { $out[$k + '-15'] = (100 * $raw[$k] / $avg).ToString('0.####', $Inv) }
+  return ,$out
+}
+
+$cpi = $null; $cpiSrc = $null
+try {
+  $page = Invoke-Get 'https://stat.gov.pl/obszary-tematyczne/ceny-handel/wskazniki-cen/wskazniki-cen-towarow-i-uslug-konsumpcyjnych-pot-inflacja-/miesieczne-wskazniki-cen-towarow-i-uslug-konsumpcyjnych-od-1982-roku/'
+  if ($page.body -notmatch 'href="(/download/[^"]*od1982roku[^"]*\.csv)"') { throw 'nie znaleziono linku do CSV na stronie GUS' }
+  $wc = New-Object Net.WebClient
+  $wc.Headers.Add('User-Agent', $UA)
+  # Pobranie jako bajty i dekodowanie Windows-1250 (Invoke-WebRequest zgadywałby kodowanie)
+  $text = [Text.Encoding]::GetEncoding(1250).GetString($wc.DownloadData('https://stat.gov.pl' + $Matches[1]))
+  $mm = @{}; $dec = @{}
+  foreach ($line in $text -split "`r?`n") {
+    $f = $line.Split(';')
+    # kolumny: nazwa;jednostka;sposób prezentacji;rok;miesiąc;wartość;...
+    if ($f.Count -lt 6 -or $f[1] -ne 'Polska' -or $f[5] -eq '') { continue }
+    $key = '{0}-{1:D2}' -f [int]$f[3], [int]$f[4]
+    $val = [double]::Parse($f[5].Replace(',', '.'), $Inv)
+    if ($f[2] -like 'Poprzedni miesi*') { $mm[$key] = $val }
+    elseif ($f[2] -like 'Grudzie* poprzedniego roku*') { $dec[$key] = $val }
+  }
+  if ($mm.Count -lt 300) { throw "za mało danych GUS ($($mm.Count) miesięcy)" }
+  $cpi = ConvertTo-CpiIndex $mm $dec; $cpiSrc = 'GUS'
+} catch {
+  $errors += [ordered]@{ symbol = 'CPI_PL (GUS)'; error = $_.Exception.Message }; Write-Host "  ! CPI GUS: $($_.Exception.Message) – próbuję Eurostat HICP"
+  try {
+    $r = Invoke-Get 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_minr?format=JSON&geo=PL&coicop18=TOTAL&unit=I15&lang=EN'
+    if ($r.status -ne 200) { throw "HTTP $($r.status)" }
+    $j = $r.body | ConvertFrom-Json   # ok. 20 kB – mieści się w limicie ConvertFrom-Json
+    # JSON-stat: "value" to słownik pozycja → wartość, "dimension.time.category.index" to miesiąc → pozycja
+    $cpi = New-Object 'System.Collections.Generic.SortedDictionary[string,string]'
+    foreach ($t in $j.dimension.time.category.index.PSObject.Properties) {
+      $v = $j.value.PSObject.Properties[[string]$t.Value]
+      if ($v -and $t.Name -match '^\d{4}-\d{2}$') { $cpi[$t.Name + '-15'] = ([double]$v.Value).ToString('0.###', $Inv) }
+    }
+    if ($cpi.Count -lt 100) { throw "za mało danych ($($cpi.Count) miesięcy)" }
+    $cpiSrc = 'HICP'
+  } catch { $cpi = $null; $errors += [ordered]@{ symbol = 'CPI_PL (HICP)'; error = $_.Exception.Message }; Write-Host "  ! CPI HICP: $($_.Exception.Message)" }
+}
+if ($cpi) { Write-Series $cpiPath $cpi; Write-Utf8 $cpiSrcPath $cpiSrc }
+# Przy błędzie obu źródeł zostaje plik z poprzedniego przebiegu
 $cpiOld = Read-Series $cpiPath
 if ($cpiOld.Count) {
   $first = $null; $lastNew = $null; foreach ($k in $cpiOld.Keys) { if (-not $first) { $first = $k }; $lastNew = $k }
-  $macroInfo['CPI_PL'] = @($first, $lastNew)
-  Write-Host "Inflacja PL (HICP): $first – $lastNew"
+  $src = if (Test-Path $cpiSrcPath) { ([IO.File]::ReadAllText((FullPath $cpiSrcPath))).Trim() } else { 'HICP' }
+  $macroInfo['CPI_PL'] = @($first, $lastNew, $src)   # [pierwsza data, ostatnia data, źródło]
+  Write-Host "Inflacja PL ($src): $first – $lastNew"
 }
 
 # ---------------------------------------------------------------- manifest
