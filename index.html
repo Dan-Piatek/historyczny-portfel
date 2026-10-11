@@ -345,11 +345,16 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
           <label>Data
             <input type="date" id="fDate" required>
           </label>
+          <!-- Wystarczy liczba akcji ALBO kwota – drugą wartość aplikacja wylicza z ceny -->
           <label>Liczba akcji
-            <input type="number" id="fQty" min="0" step="any" inputmode="decimal" required>
+            <input type="number" id="fQty" min="0" step="any" inputmode="decimal" placeholder="albo podaj kwotę →">
           </label>
-          <label><span>Cena jedn. <span id="lblCcy">(PLN)</span></span>
-            <input type="number" id="fPrice" min="0" step="any" inputmode="decimal" required>
+          <label title="Wartość zakupu/sprzedaży bez prowizji. Używana, gdy nie podano liczby akcji."><span>Kwota <span id="lblAmtCcy">(PLN)</span></span>
+            <input type="number" id="fAmount" min="0" step="any" inputmode="decimal" placeholder="opcjonalnie">
+          </label>
+          <!-- Puste pole ceny = cena zamknięcia z dnia transakcji (lub z ostatniej wcześniejszej sesji) -->
+          <label title="Puste = cena zamknięcia z dnia transakcji"><span>Cena jedn. <span id="lblCcy">(PLN)</span></span>
+            <input type="number" id="fPrice" min="0" step="any" inputmode="decimal" placeholder="z notowań">
           </label>
           <label><span>Prowizja <span id="lblFeeCcy">(PLN)</span></span>
             <input type="number" id="fFee" min="0" step="any" inputmode="decimal" value="0">
@@ -1147,10 +1152,11 @@ var PortfolioEngine = {
 var Fmt = (function () {
   // Formatery tworzone raz (Intl.NumberFormat jest kosztowny); formatery walut zapamiętywane per kod waluty
   var L = Config.LOCALE, curCache = {};
-  var cur = function (c, signed) {
-    var key = c + (signed ? '+' : '');
+  // precise: do 4 miejsc po przecinku (ceny groszowych akcji, np. 0,2591 USD)
+  var cur = function (c, signed, precise) {
+    var key = c + (signed ? '+' : '') + (precise ? 'p' : '');
     if (!curCache[key]) {
-      try { curCache[key] = new Intl.NumberFormat(L, { style: 'currency', currency: c, signDisplay: signed ? 'exceptZero' : 'auto' }); }
+      try { curCache[key] = new Intl.NumberFormat(L, { style: 'currency', currency: c, signDisplay: signed ? 'exceptZero' : 'auto', maximumFractionDigits: precise ? 4 : 2 }); }
       // nieznany kod waluty (RangeError) → zwykła liczba z 2 miejscami
       catch (e) { curCache[key] = new Intl.NumberFormat(L, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
     }
@@ -1175,7 +1181,8 @@ var Fmt = (function () {
     money: function (x, c) {
       if (!ok(x)) return dash;
       if (c === 'GBp' || c === 'GBX') return price.format(x) + ' GBp';
-      return /^[A-Z]{3}$/.test(c || '') ? cur(c).format(x) : price.format(x) + ' ' + (c || '');
+      // kwoty poniżej 10 jednostek z dokładnością do 4 miejsc, większe – standardowo (2 miejsca)
+      return /^[A-Z]{3}$/.test(c || '') ? cur(c, false, Math.abs(x) < 10).format(x) : price.format(x) + ' ' + (c || '');
     },
     num: function (x) { return ok(x) ? num.format(x) : dash; },
     price: function (x) { return ok(x) ? price.format(x) : dash; },
@@ -1576,7 +1583,7 @@ var UI = {
     // --- formularz transakcji: każda zmiana pola unieważnia zaakceptowane ostrzeżenie i odświeża podpowiedź ---
     $('txForm').onsubmit = function (e) { e.preventDefault(); UI.submitTx(); };
     $('btnTxCancel').onclick = function () { UI.cancelEdit(); };
-    ['fTicker', 'fDate', 'fPrice', 'fQty', 'fType', 'fFx'].forEach(function (id) {
+    ['fTicker', 'fDate', 'fPrice', 'fQty', 'fAmount', 'fType', 'fFx'].forEach(function (id) {
       $(id).addEventListener('input', function () { UI.ui.pendingWarnKey = null; UI.updateTxHint(); });
     });
     // Po wyborze waloru: zamiana na pełny symbol (np. PKN → PKN.WA) i pobranie jego notowań
@@ -1929,10 +1936,22 @@ var UI = {
       var t = UI.active().transactions.filter(function (x) { return x.id === UI.ui.editId; })[0];
       if (t && t.ticker === sym && t.currency) ccy = t.currency;
     }
-    var fx = DataSource.parseNumber($('fFx').value);
+    var fx = DataSource.parseNumber($('fFx').value), date = $('fDate').value;
+    var price = DataSource.parseNumber($('fPrice').value), qty = DataSource.parseNumber($('fQty').value);
+    var amount = DataSource.parseNumber($('fAmount').value);
+    // Informacje o tym, co zostało podstawione automatycznie – dla podpowiedzi i walidacji (nie trafiają do transakcji)
+    var info = { priceAuto: false, priceDate: null, qtyFromAmount: false, amount: amount > 0 ? amount : null };
+    // Brak ceny → zamknięcie z dnia transakcji (priceAt zwraca ostatnią sesję <= data, np. piątek dla soboty)
+    if (!(price > 0) && sym && Util.isISODate(date)) {
+      var q = PortfolioEngine.priceAt(DataSource.getRows(sym), date);
+      if (q) { price = q.close; info.priceAuto = true; info.priceDate = q.date; }
+    }
+    // Brak liczby akcji, ale jest kwota → ilość = kwota / cena (4 miejsca po przecinku, akcje ułamkowe dozwolone)
+    if (!(qty > 0) && amount > 0 && price > 0) { qty = Math.round(amount / price * 1e4) / 1e4; info.qtyFromAmount = true; }
+    UI.ui.formInfo = info;
     return {
-      ticker: sym, type: $('fType').value, date: $('fDate').value, currency: ccy,
-      qty: DataSource.parseNumber($('fQty').value), price: DataSource.parseNumber($('fPrice').value),
+      ticker: sym, type: $('fType').value, date: date, currency: ccy,
+      qty: qty, price: price,
       fee: $('fFee').value === '' ? 0 : DataSource.parseNumber($('fFee').value),
       fx: Util.ccyInfo(ccy).code !== 'PLN' && fx > 0 ? fx : undefined
     };
@@ -1945,8 +1964,11 @@ var UI = {
     if (!tx.ticker || !Util.isSym(tx.ticker)) errors.push('Podaj poprawny symbol waloru (np. PKN.WA, AAPL, SAP.DE).');
     if (!Util.isISODate(tx.date)) errors.push('Podaj datę transakcji.');
     else if (tx.date > Util.todayISO()) errors.push('Data transakcji nie może być w przyszłości.');
-    if (!(tx.qty > 0)) errors.push('Liczba akcji musi być większa od zera.');
-    if (!(tx.price > 0)) errors.push('Cena musi być większa od zera.');
+    var fi = UI.ui.formInfo || {};
+    if (!(tx.price > 0)) errors.push(DataSource.getRows(tx.ticker)
+      ? 'Brak notowań ' + tx.ticker + ' na ten dzień ani wcześniej – wpisz cenę ręcznie.'
+      : 'Wpisz cenę – notowania ' + (tx.ticker || 'waloru') + ' nie są jeszcze dostępne (poczekaj na pobranie albo wczytaj CSV).');
+    else if (!(tx.qty > 0)) errors.push('Podaj liczbę akcji albo kwotę.');
     if (!(tx.fee >= 0)) errors.push('Prowizja nie może być ujemna.');
     if (errors.length) return { errors: errors, warnings: warnings };
     // Symulacja: historia bez edytowanej transakcji + kandydat (z zachowanym seq) – wykrywa też psucie późniejszych sprzedaży
@@ -1964,8 +1986,9 @@ var UI = {
     if (!DataSource.symbols[tx.ticker] && !DataSource.getRows(tx.ticker) && DataSource.manifest)
       warnings.push('Waloru ' + tx.ticker + ' nie ma na serwerze danych – wycena będzie możliwa po wczytaniu pliku CSV.');
     // Odchylenie ceny sprawdzane tylko, gdy jest sesja dokładnie w dniu transakcji
+    // (pomijane, gdy cena została podstawiona z notowań – wtedy jest równa zamknięciu)
     var q = PortfolioEngine.priceAt(DataSource.getRows(tx.ticker), tx.date);
-    if (q && q.date === tx.date) {
+    if (q && q.date === tx.date && !fi.priceAuto) {
       var dev = tx.price / q.close - 1;
       if (Math.abs(dev) > Config.PRICE_DEVIATION_WARN)
         warnings.push('Cena ' + Fmt.money(tx.price, tx.currency) + ' odbiega o ' + Fmt.pct(dev) + ' od kursu zamknięcia z ' + Fmt.date(q.date) + ' (' + Fmt.money(q.close, tx.currency) + ').');
@@ -1979,8 +2002,11 @@ var UI = {
   updateTxHint: function () {
     var tx = UI.readForm(), el = UI.$('txHint'), info = Util.ccyInfo(tx.currency);
     var lbl = tx.currency === 'GBp' ? '(GBp – pensy)' : '(' + (tx.currency || 'PLN') + ')';
-    UI.$('lblCcy').textContent = lbl; UI.$('lblFeeCcy').textContent = lbl;
+    UI.$('lblCcy').textContent = lbl; UI.$('lblFeeCcy').textContent = lbl; UI.$('lblAmtCcy').textContent = lbl;
     UI.$('fxWrap').classList.toggle('hidden', info.code === 'PLN');
+    var fi = UI.ui.formInfo || {};
+    // Podpowiedź w pustym polu ceny: wartość, która zostanie podstawiona
+    UI.$('fPrice').placeholder = fi.priceAuto ? Fmt.price(tx.price) : 'z notowań';
     var parts = [];
     if (tx.ticker && DataSource.nameOf(tx.ticker)) parts.push(DataSource.nameOf(tx.ticker) + ' (' + (DataSource.symbols[tx.ticker].m || '') + ', ' + tx.currency + ')');
     if (tx.ticker && Util.isISODate(tx.date)) {
@@ -1998,7 +2024,12 @@ var UI = {
       var held = PortfolioEngine.heldAt(UI.active().transactions, tx.ticker, tx.date, UI.ui.editId);
       if (held > 0) parts.push('posiadane na ten dzień: ' + Fmt.num(held) + ' szt.');
     }
-    el.textContent = parts.join(' · ');
+    // Co zostanie zapisane, jeśli część pól wyliczono automatycznie
+    var calc = [];
+    if (fi.priceAuto) calc.push('cena ' + Fmt.money(tx.price, tx.currency) + ' (zamknięcie' + (fi.priceDate !== tx.date ? ' z ' + Fmt.date(fi.priceDate) : '') + ')');
+    if (fi.qtyFromAmount) calc.push(Fmt.num(tx.qty) + ' szt. za ' + Fmt.money(fi.amount, tx.currency));
+    else if (fi.amount && tx.qty > 0) calc.push('podano liczbę akcji – kwota pominięta');
+    el.innerHTML = UI.esc(parts.join(' · ')) + (calc.length ? '<br><b>Zostanie zapisane:</b> ' + UI.esc(calc.join(', ')) : '');
   },
 
   /** Zapis transakcji (nowej lub edytowanej) po walidacji. */
@@ -2039,7 +2070,7 @@ var UI = {
     var $ = UI.$;
     UI.ui.editId = id; UI.ui.pendingWarnKey = null;
     $('fTicker').value = t.ticker; $('fType').value = t.type; $('fDate').value = t.date;
-    $('fQty').value = t.qty; $('fPrice').value = t.price; $('fFee').value = t.fee; $('fFx').value = t.fx || '';
+    $('fQty').value = t.qty; $('fAmount').value = ''; $('fPrice').value = t.price; $('fFee').value = t.fee; $('fFx').value = t.fx || '';
     $('txFormTitle').textContent = 'Edycja transakcji'; $('btnTxSave').textContent = 'Zapisz zmiany';
     $('btnTxCancel').classList.remove('hidden'); $('txMsg').innerHTML = '';
     $('txForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2052,7 +2083,7 @@ var UI = {
     UI.ui.editId = null; UI.ui.pendingWarnKey = null;
     $('txFormTitle').textContent = 'Nowa transakcja'; $('btnTxSave').textContent = 'Dodaj';
     $('btnTxCancel').classList.add('hidden');
-    $('fQty').value = ''; $('fPrice').value = ''; $('fFee').value = '0'; $('fFx').value = ''; $('txMsg').innerHTML = '';
+    $('fQty').value = ''; $('fAmount').value = ''; $('fPrice').value = ''; $('fFee').value = '0'; $('fFx').value = ''; $('txMsg').innerHTML = '';
   },
 
   /** Usunięcie transakcji – zablokowane, gdy późniejsza sprzedaż straciłaby pokrycie (np. usunięcie kupna). */

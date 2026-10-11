@@ -13,6 +13,13 @@ DODAWANIE TRANSAKCJI
 - Wpisz symbol albo zacznij pisać nazwę i wybierz z listy. Przykłady:
     PKN.WA (GPW), AAPL (USA), SAP.DE (Niemcy), VOD.L (Londyn), 7203.T (Japonia).
   Dla spółek z GPW wystarczy sam ticker, np. PKN.
+- Nie znasz ceny? Zostaw pole „Cena” puste: aplikacja podstawi cenę zamknięcia z dnia
+  transakcji (albo z ostatniej wcześniejszej sesji, np. piątku dla soboty).
+- Wystarczy podać liczbę akcji ALBO kwotę: z kwoty aplikacja wyliczy liczbę akcji
+  (do 4 miejsc po przecinku). Pod formularzem widać, co zostanie zapisane.
+- Ceny z serwera są skorygowane o splity (np. Apple w 2002 r. ok. 0,26 USD). Jeśli wpisujesz
+  liczbę akcji z dawnego potwierdzenia maklerskiego sprzed splitu, przelicz ją na dzisiejsze akcje
+  albo podaj kwotę zamiast liczby akcji.
 - Cenę i prowizję podaj w walucie notowań (Londyn: w pensach, GBp).
 - Kurs waluty możesz zostawić pusty: aplikacja użyje kursu średniego NBP z dnia transakcji.
   Jeśli znasz kurs zastosowany przez biuro maklerskie, wpisz go ręcznie.
