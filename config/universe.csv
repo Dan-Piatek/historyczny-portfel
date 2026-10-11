@@ -101,7 +101,6 @@ symbol,name,market,type,indexes
 "TXT.WA","Text","PL","EQUITY","MWIG40"
 "VOX.WA","Voxel","PL","EQUITY","MWIG40"
 "VRC.WA","Vercom","PL","EQUITY","MWIG40"
-"WIG.WA","WIG","PL","INDEX",""
 "WPL.WA","Wirtualna Polska Holding","PL","EQUITY","MWIG40"
 "XTB.WA","Xtb","PL","EQUITY","MWIG40"
 "ZAB.WA","Zabka Group","PL","EQUITY","WIG20"
