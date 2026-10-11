@@ -1,0 +1,2102 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+ Historyczny portfel – GPW, giełdy europejskie, USA, Japonia
+ Aplikacja jednoplikowa (HTML + CSS + JS inline), działa z file:// bez serwera.
+================================================================================
+ ŹRÓDŁA DANYCH – wyniki weryfikacji (2026-10-11, żądania z "Origin: null", czyli tak,
+ jak wysyła je przeglądarka ze strony otwartej z dysku):
+
+ 1) LUSTRO DANYCH NA GITHUBIE (źródło podstawowe)
+    raw.githubusercontent.com zwraca "Access-Control-Allow-Origin: *" → fetch() z file:// działa.
+    Workflow .github/workflows/update-data.yml codziennie (pn–pt 22:30 UTC) pobiera ceny zamknięcia
+    z Yahoo Finance i kursy NBP, i publikuje je na gałęzi "data":
+      index.json        manifest (symbole, waluty, zakresy dat)
+      q/<SYMBOL>.csv    "Date,Close" (znak ^ w nazwie pliku zamieniony na _)
+      fx/<KOD>.csv      "Date,Close" kurs średni NBP: PLN za 1 jednostkę waluty
+    Aplikacja sprawdza manifest przy otwarciu i co godzinę, a pobiera tylko potrzebne pliki.
+
+ 2) NBP API – "Access-Control-Allow-Origin: *" → działa z file://. Zapas dla kursów walut,
+    gdy lustro jest niedostępne (okna 93 dni – limit API).
+
+ 3) Yahoo Finance i Stooq – brak nagłówka CORS (Stooq dodatkowo ma weryfikację przeglądarki),
+    więc z przeglądarki ich nie odpytujemy. Yahoo jest używane tylko przez workflow, a pliki CSV
+    ze Stooq można wczytać ręcznie (tryb awaryjny, zawsze dostępny).
+
+ Ograniczenia Yahoo: polskie indeksy WIG20/mWIG40/sWIG80 nie mają historii, dlatego benchmarkiem
+ WIG20 jest ETF Beta WIG20TR (od 2019 r.), a WIG.WA ma historię od 2019 r. Dłuższą historię
+ indeksów GPW można wczytać z CSV ze Stooq (np. wig20_d.csv).
+
+ Waluty: wycena w PLN. Transakcja w walucie obcej jest przeliczana kursem średnim NBP z dnia
+ transakcji (lub ostatnim wcześniejszym) albo kursem wpisanym ręcznie. Ceny z Londynu są w pensach
+ (GBp = GBP/100).
+
+ localStorage na file://: Chrome/Edge współdzielą jeden magazyn dla wszystkich plików file://,
+ Firefox izoluje go per plik lub może go blokować. Każdy dostęp jest w try/catch, a aplikacja
+ działa także bez niego. Notowania z lustra są zapisywane w cache tylko od potrzebnej daty.
+
+ Testy: w konsoli wywołaj runSelfTests() albo otwórz index.html#selftest
+================================================================================
+-->
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Historyczny portfel</title>
+<style>
+:root {
+  color-scheme: light;
+  --bg: #f4f4f2; --surface: #fcfcfb; --surface-2: #f0efec; --border: #dedcd7;
+  --text: #0b0b0b; --text-2: #52514e; --text-3: #6f6d67;
+  --accent: #2a78d6; --accent-text: #ffffff;
+  --s1: #2a78d6; --s2: #eb6834; --grid: #e9e8e4;
+  --gain: #0a7a0a; --loss: #c22f2f;
+  --warn-bg: #fff4d6; --warn-bd: #e0a100; --err-bg: #fde8e8; --err-bd: #d03b3b;
+  --ok-bg: #e6f4e6; --ok-bd: #0ca30c;
+  --shadow: 0 1px 2px rgba(0,0,0,.06);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #36352f;
+    --text: #f0efec; --text-2: #c3c2b7; --text-3: #9a998f;
+    --accent: #3987e5; --accent-text: #ffffff;
+    --s1: #3987e5; --s2: #d95926; --grid: #2b2b28;
+    --gain: #57c957; --loss: #f07272;
+    --warn-bg: #3a2f12; --warn-bd: #c98500; --err-bg: #3d1c1c; --err-bd: #e66767;
+    --ok-bg: #173117; --ok-bd: #0ca30c;
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #36352f;
+  --text: #f0efec; --text-2: #c3c2b7; --text-3: #9a998f;
+  --accent: #3987e5; --accent-text: #ffffff;
+  --s1: #3987e5; --s2: #d95926; --grid: #2b2b28;
+  --gain: #57c957; --loss: #f07272;
+  --warn-bg: #3a2f12; --warn-bd: #c98500; --err-bg: #3d1c1c; --err-bd: #e66767;
+  --ok-bg: #173117; --ok-bd: #0ca30c;
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 14px/1.45 "Segoe UI", system-ui, -apple-system, Roboto, Arial, sans-serif;
+  font-variant-numeric: tabular-nums;
+}
+a { color: var(--accent); }
+button, input, select { font: inherit; color: inherit; }
+input, select {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 8px; min-width: 0;
+}
+input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+button {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 12px; cursor: pointer; white-space: nowrap;
+}
+button:hover { border-color: var(--text-3); }
+button:disabled { opacity: .55; cursor: default; }
+button.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+button.link { background: none; border: none; padding: 2px 4px; color: var(--accent); }
+button.danger { color: var(--loss); }
+button.small { padding: 2px 8px; font-size: 12px; }
+
+header.app {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 16px; background: var(--surface); border-bottom: 1px solid var(--border);
+}
+header.app h1 { font-size: 18px; margin: 0; }
+header.app .sub { color: var(--text-2); font-size: 12px; flex: 1; }
+header.app .actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+.layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 16px; padding: 16px; }
+@media (max-width: 900px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+.card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; box-shadow: var(--shadow); margin-bottom: 16px; min-width: 0;
+}
+.card h2 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.card h2 .spacer { flex: 1; }
+.muted { color: var(--text-2); }
+.small-text { font-size: 12px; }
+
+#portfolioList { list-style: none; margin: 0 0 10px; padding: 0; }
+#portfolioList li button {
+  width: 100%; text-align: left; background: none; border: 1px solid transparent;
+  padding: 7px 10px; overflow: hidden; text-overflow: ellipsis;
+}
+#portfolioList li button.active { background: var(--surface-2); border-color: var(--border); font-weight: 600; }
+.btn-row { display: flex; gap: 6px; flex-wrap: wrap; }
+
+.sync { font-size: 12px; margin: 8px 0; display: flex; gap: 6px; align-items: flex-start; }
+.sync .dot { width: 9px; height: 9px; border-radius: 50%; margin-top: 4px; flex: none; background: var(--text-3); }
+.sync.ok .dot { background: var(--ok-bd); }
+.sync.err .dot { background: var(--err-bd); }
+.sync.busy .dot { background: var(--warn-bd); }
+details.settings summary { cursor: pointer; font-size: 12px; color: var(--text-2); margin-top: 8px; }
+details.settings input { width: 100%; margin: 6px 0; font-size: 12px; }
+
+.dropzone {
+  border: 2px dashed var(--border); border-radius: 8px; padding: 12px; text-align: center;
+  color: var(--text-2); margin: 8px 0; font-size: 13px;
+}
+body.dragging .dropzone { border-color: var(--accent); background: var(--surface-2); }
+
+.toolbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: end; }
+.toolbar label, .form-grid label { display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-2); }
+
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.kpi { background: var(--surface-2); border-radius: 8px; padding: 10px 12px; }
+.kpi .label { font-size: 12px; color: var(--text-2); }
+.kpi .value { font-size: 20px; font-weight: 600; margin-top: 2px; }
+.kpi .sub { font-size: 12px; color: var(--text-2); }
+
+.gain { color: var(--gain); }
+.loss { color: var(--loss); }
+
+.status-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.status-chip {
+  display: inline-flex; gap: 6px; align-items: center; border: 1px solid var(--border);
+  border-radius: 999px; padding: 3px 10px; font-size: 12px; background: var(--surface-2);
+}
+.status-chip .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+.status-chip.mirror .dot { background: var(--ok-bd); }
+.status-chip.cache .dot { background: var(--accent); }
+.status-chip.file .dot { background: var(--s2); }
+.status-chip.none .dot { background: transparent; border: 1.5px solid var(--err-bd); }
+
+.notice { border-radius: 8px; padding: 10px 12px; margin: 8px 0; border-left: 4px solid var(--border); background: var(--surface-2); }
+.notice.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
+.notice.err { background: var(--err-bg); border-color: var(--err-bd); }
+.notice.ok { background: var(--ok-bg); border-color: var(--ok-bd); }
+.notice ul { margin: 6px 0; padding-left: 20px; }
+.hidden { display: none !important; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; align-items: end; }
+.form-grid .wide { grid-column: span 2; }
+@media (max-width: 500px) { .form-grid .wide { grid-column: span 1; } }
+.hint { font-size: 12px; color: var(--text-2); min-height: 18px; margin-top: 6px; }
+
+.table-wrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--border); text-align: right; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+td.left, th.left { text-align: left; }
+th { font-weight: 600; color: var(--text-2); font-size: 12px; user-select: none; }
+th.sortable { cursor: pointer; }
+th.sortable:hover { color: var(--text); }
+th .arrow { font-size: 10px; margin-left: 3px; }
+td .name { color: var(--text-2); font-size: 11px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+tr.closed td { color: var(--text-3); }
+tr.future td { opacity: .5; }
+tfoot td { font-weight: 600; border-bottom: none; }
+.tag { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); }
+.tag.buy { color: var(--gain); }
+.tag.sell { color: var(--loss); }
+.warn-icon { color: var(--warn-bd); cursor: help; }
+
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 16px; }
+@media (max-width: 500px) { .charts { grid-template-columns: minmax(0, 1fr); } }
+.chart-wrap { position: relative; }
+.chart-wrap canvas { width: 100%; height: 280px; display: block; }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+.legend .sw { display: inline-block; width: 14px; height: 3px; border-radius: 2px; vertical-align: middle; margin-right: 5px; }
+.legend .sw.dash { background: none !important; border-top: 2px dashed; height: 0; }
+.tooltip {
+  position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 9px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  white-space: nowrap; z-index: 5;
+}
+.tooltip .row { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.tooltip .row span:first-child { display: inline-flex; align-items: center; gap: 5px; color: var(--text-2); }
+.tooltip .sw { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; text-align: center; }
+#toast {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); max-width: 90vw;
+  background: var(--text); color: var(--bg); padding: 8px 14px; border-radius: 8px; font-size: 13px;
+  z-index: 50; opacity: 0; transition: opacity .2s; pointer-events: none;
+}
+#toast.show { opacity: 1; }
+#selftestOut { white-space: pre-wrap; font: 12px/1.4 Consolas, monospace; }
+</style>
+</head>
+<body>
+
+<header class="app">
+  <h1>Historyczny portfel</h1>
+  <span class="sub">GPW · Europa · USA · Japonia · wycena w PLN</span>
+  <div class="actions">
+    <button id="btnExportJson" title="Zapisz portfele i transakcje do pliku JSON">Eksport JSON</button>
+    <label class="small-text muted" title="Dołącz notowania potrzebne do portfeli"><input type="checkbox" id="chkExportQuotes"> z notowaniami</label>
+    <button id="btnImportJson" title="Wczytaj stan z pliku JSON">Import JSON</button>
+    <input type="file" id="fileJson" accept=".json,application/json" class="hidden">
+    <button id="btnTheme" title="Przełącz motyw">Motyw: auto</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside>
+    <div class="card">
+      <h2>Portfele</h2>
+      <ul id="portfolioList"></ul>
+      <div class="btn-row">
+        <button id="btnNewPortfolio" class="primary">+ Nowy</button>
+        <button id="btnRenamePortfolio">Zmień nazwę</button>
+        <button id="btnDeletePortfolio" class="danger">Usuń</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Notowania</h2>
+      <div id="syncStatus" class="sync"><span class="dot"></span><span>—</span></div>
+      <div class="btn-row">
+        <button id="btnRefresh" title="Sprawdź nowe dane na serwerze">Odśwież teraz</button>
+        <button id="btnDiag" title="Sprawdź połączenie ze źródłami danych">Diagnostyka</button>
+      </div>
+      <div id="diagOut" class="small-text"></div>
+      <div class="dropzone" id="dropzone">
+        Tryb awaryjny: upuść tutaj pliki CSV<br><span class="small-text">(np. ze Stooq: <b>pkn_d.csv</b>, <b>aapl_us_d.csv</b>)</span><br>
+        <button id="btnPickCsv" style="margin-top:6px">Wybierz pliki CSV…</button>
+        <input type="file" id="fileCsv" accept=".csv,.txt,text/csv" multiple class="hidden">
+      </div>
+      <details class="settings">
+        <summary>Adres serwera danych</summary>
+        <input id="dataUrl" spellcheck="false" aria-label="Adres serwera danych">
+        <div class="btn-row"><button id="btnSaveUrl" class="small">Zapisz</button><button id="btnResetUrl" class="small">Domyślny</button></div>
+      </details>
+      <p class="small-text muted" id="storageInfo"></p>
+    </div>
+  </aside>
+
+  <main>
+    <div class="card">
+      <div class="toolbar">
+        <label>Stan na dzień
+          <input type="date" id="asOf">
+        </label>
+        <button id="btnAsOfToday">Dziś</button>
+        <label>Benchmark
+          <select id="benchmark"></select>
+        </label>
+        <span class="muted small-text" id="asOfInfo"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Podsumowanie <span class="muted small-text" id="portfolioName"></span></h2>
+      <div class="kpis" id="kpis"></div>
+    </div>
+
+    <div class="card">
+      <h2>Źródła danych</h2>
+      <div class="status-list" id="statusList"></div>
+      <div id="manualPanel" class="notice warn hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2 id="txFormTitle">Nowa transakcja</h2>
+      <form id="txForm" autocomplete="off" novalidate>
+        <div class="form-grid">
+          <label class="wide">Walor (symbol lub nazwa)
+            <input id="fTicker" list="tickerList" placeholder="np. PKN.WA, AAPL, SAP.DE, 7203.T" required>
+          </label>
+          <label>Typ
+            <select id="fType"><option value="BUY">Kupno</option><option value="SELL">Sprzedaż</option></select>
+          </label>
+          <label>Data
+            <input type="date" id="fDate" required>
+          </label>
+          <label>Liczba akcji
+            <input type="number" id="fQty" min="0" step="any" inputmode="decimal" required>
+          </label>
+          <label><span>Cena jedn. <span id="lblCcy">(PLN)</span></span>
+            <input type="number" id="fPrice" min="0" step="any" inputmode="decimal" required>
+          </label>
+          <label><span>Prowizja <span id="lblFeeCcy">(PLN)</span></span>
+            <input type="number" id="fFee" min="0" step="any" inputmode="decimal" value="0">
+          </label>
+          <label id="fxWrap" class="hidden" title="Puste = kurs średni NBP z dnia transakcji (lub ostatni wcześniejszy)">Kurs waluty (PLN)
+            <input type="number" id="fFx" min="0" step="any" inputmode="decimal" placeholder="NBP">
+          </label>
+          <div class="btn-row">
+            <button type="submit" class="primary" id="btnTxSave">Dodaj</button>
+            <button type="button" id="btnTxCancel" class="hidden">Anuluj</button>
+          </div>
+        </div>
+        <datalist id="tickerList"></datalist>
+        <div class="hint" id="txHint"></div>
+        <div id="txMsg"></div>
+      </form>
+    </div>
+
+    <div class="card">
+      <h2>Pozycje <span class="spacer"></span><button id="btnExportCsv" class="small">Eksport CSV</button></h2>
+      <div class="table-wrap"><table id="posTable"></table></div>
+    </div>
+
+    <div class="charts">
+      <div class="card">
+        <h2>Wartość portfela a zainwestowany kapitał <span class="muted small-text">(PLN)</span></h2>
+        <div class="legend" id="legendValue"></div>
+        <div class="chart-wrap"><canvas id="chartValue" role="img" aria-label="Wykres wartości portfela"></canvas><div class="tooltip hidden"></div></div>
+      </div>
+      <div class="card">
+        <h2>Stopa zwrotu vs benchmark <span class="muted small-text">(100 = dzień 1. transakcji, w PLN)</span></h2>
+        <div class="legend" id="legendReturn"></div>
+        <div class="chart-wrap"><canvas id="chartReturn" role="img" aria-label="Wykres stopy zwrotu na tle benchmarku"></canvas><div class="tooltip hidden"></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Transakcje</h2>
+      <div class="table-wrap"><table id="txTable"></table></div>
+    </div>
+
+    <div class="card hidden" id="selftestCard">
+      <h2>Wyniki testów</h2>
+      <div id="selftestOut"></div>
+    </div>
+  </main>
+</div>
+
+<footer class="app">
+  Dane z publicznych źródeł: Yahoo Finance (ceny zamknięcia, skorygowane o splity) i NBP (kursy średnie), pobierane automatycznie na GitHub;
+  tryb awaryjny – pliki CSV (np. Stooq). Bez dywidend i podatków. Aplikacja ma charakter edukacyjny i nie stanowi porady inwestycyjnej.
+</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+'use strict';
+
+/* =============================================================================
+ * Config
+ * ========================================================================== */
+var Config = {
+  APP_ID: 'gpw-portfolio',
+  VERSION: 2,
+  STORAGE_STATE: 'gpwPortfolio.state.v1',
+  STORAGE_QUOTES: 'gpwPortfolio.quotes.v2',
+  STORAGE_QUOTES_V1: 'gpwPortfolio.quotes.v1',
+  STORAGE_FX: 'gpwPortfolio.fx.v2',
+  STORAGE_MANIFEST: 'gpwPortfolio.manifest.v2',
+  // Lustro danych (GitHub, gałąź "data"). Można zmienić w UI: „Adres serwera danych”.
+  DEFAULT_DATA_URL: 'https://raw.githubusercontent.com/Dan-Piatek/historyczny-portfel/data/',
+  FETCH_TIMEOUT_MS: 10000,
+  SYNC_INTERVAL_MS: 60 * 60 * 1000,      // sprawdzanie nowych danych co godzinę
+  MANIFEST_MAX_AGE_MS: 60 * 60 * 1000,   // przy otwarciu: odśwież manifest starszy niż godzina
+  CACHE_MARGIN_DAYS: 400,                // cache notowań z lustra: od (najwcześniejsza transakcja − margines)
+  PRICE_DEVIATION_WARN: 0.15,
+  LOCALE: 'pl-PL',
+  BASE_CURRENCY: 'PLN',
+  BENCHMARKS: [
+    ['ETFBW20TR.WA', 'WIG20TR (ETF Beta, od 2019)'],
+    ['WIG.WA', 'WIG (od 2019)'],
+    ['WIG20.WA', 'WIG20 (tylko z pliku CSV Stooq)'],
+    ['^GSPC', 'S&P 500'],
+    ['^NDX', 'Nasdaq-100'],
+    ['^STOXX50E', 'Euro Stoxx 50'],
+    ['^GDAXI', 'DAX'],
+    ['^FTSE', 'FTSE 100'],
+    ['^N225', 'Nikkei 225']
+  ],
+  // Waluta notowań wg sufiksu symbolu Yahoo (gdy brak manifestu, np. import CSV offline)
+  SUFFIX_CCY: { WA: 'PLN', DE: 'EUR', F: 'EUR', PA: 'EUR', AS: 'EUR', MC: 'EUR', MI: 'EUR', BR: 'EUR', LS: 'EUR',
+    VI: 'EUR', HE: 'EUR', IR: 'EUR', L: 'GBp', SW: 'CHF', ST: 'SEK', CO: 'DKK', OL: 'NOK', PR: 'CZK', BD: 'HUF', T: 'JPY' },
+  INDEX_CCY: { '^GSPC': 'USD', '^NDX': 'USD', '^DJI': 'USD', '^N225': 'JPY', '^GDAXI': 'EUR', '^FCHI': 'EUR',
+    '^FTSE': 'GBP', '^STOXX50E': 'EUR', '^AEX': 'EUR', '^IBEX': 'EUR', '^SSMI': 'CHF', '^OMX': 'SEK', '^ATX': 'EUR', '^BFX': 'EUR' },
+  // Mapowanie Stooq ↔ Yahoo (tryb awaryjny)
+  STOOQ_SUFFIX: { us: '', de: '.DE', uk: '.L', jp: '.T', hu: '.BD' },
+  STOOQ_INDEX: { 'wig20': 'WIG20.WA', 'wig': 'WIG.WA', 'mwig40': 'MWIG40.WA', 'swig80': 'SWIG80.WA',
+    '^spx': '^GSPC', '^ndx': '^NDX', '^dji': '^DJI', '^nkx': '^N225', '^dax': '^GDAXI' },
+  stooqCsvUrl: function (stooqSym) { return 'https://stooq.pl/q/d/l/?s=' + encodeURIComponent(stooqSym) + '&i=d'; },
+  nbpUrl: function (code, from, to) {
+    return 'https://api.nbp.pl/api/exchangerates/rates/a/' + encodeURIComponent(code.toLowerCase()) + '/' + from + '/' + to + '/?format=json';
+  },
+  // Lista zapasowa do autouzupełniania, gdy manifest jest niedostępny
+  FALLBACK_SYMBOLS: [
+    ['ALE.WA','Allegro'],['ALR.WA','Alior Bank'],['BDX.WA','Budimex'],['CDR.WA','CD Projekt'],['CPS.WA','Cyfrowy Polsat'],
+    ['DNP.WA','Dino Polska'],['KGH.WA','KGHM'],['KRU.WA','Kruk'],['KTY.WA','Grupa Kęty'],['LPP.WA','LPP'],
+    ['MBK.WA','mBank'],['OPL.WA','Orange Polska'],['PCO.WA','Pepco Group'],['PEO.WA','Bank Pekao'],['PGE.WA','PGE'],
+    ['PKN.WA','Orlen'],['PKO.WA','PKO BP'],['PZU.WA','PZU'],['SPL.WA','Santander Bank Polska'],['ZAB.WA','Żabka Group'],
+    ['AAPL','Apple'],['MSFT','Microsoft'],['NVDA','NVIDIA'],['AMZN','Amazon'],['GOOGL','Alphabet A'],['META','Meta Platforms'],
+    ['SAP.DE','SAP'],['ASML.AS','ASML'],['MC.PA','LVMH'],['NESN.SW','Nestlé'],['NOVO-B.CO','Novo Nordisk B'],['SHEL.L','Shell'],
+    ['7203.T','Toyota'],['6758.T','Sony'],['ETFBW20TR.WA','Beta ETF WIG20TR'],['^GSPC','S&P 500'],['^N225','Nikkei 225']
+  ]
+};
+
+/* =============================================================================
+ * Util
+ * ========================================================================== */
+var Util = {
+  todayISO: function () {
+    var d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  },
+  isISODate: function (s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && !isNaN(Util.dateMs(s)); },
+  dateMs: function (iso) { return Date.UTC(+iso.slice(0, 4), +iso.slice(5, 7) - 1, +iso.slice(8, 10)); },
+  daysBetween: function (a, b) { return (Util.dateMs(b) - Util.dateMs(a)) / 86400000; },
+  addDays: function (iso, n) { return new Date(Util.dateMs(iso) + n * 86400000).toISOString().slice(0, 10); },
+  uid: function () { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); },
+  normSym: function (t) { return String(t || '').trim().toUpperCase(); },
+  isSym: function (s) { return /^\^?[A-Z0-9][A-Z0-9.\-=&]{0,24}$/.test(s); },
+  symFile: function (sym) { return Util.normSym(sym).replace(/\^/g, '_') + '.csv'; },
+  /** Waluta notowań → { code: kod NBP, factor } (GBp = pensy → GBP/100). */
+  ccyInfo: function (c) {
+    if (!c) return { code: 'PLN', factor: 1 };
+    if (c === 'GBp' || c === 'GBX') return { code: 'GBP', factor: 0.01 };
+    if (c === 'ZAc') return { code: 'ZAR', factor: 0.01 };
+    if (c === 'ILA') return { code: 'ILS', factor: 0.01 };
+    return { code: c.toUpperCase(), factor: 1 };
+  },
+  guessCurrency: function (sym) {
+    sym = Util.normSym(sym);
+    if (Config.INDEX_CCY[sym]) return Config.INDEX_CCY[sym];
+    var m = sym.match(/\.([A-Z]{1,2})$/);
+    if (m) return Config.SUFFIX_CCY[m[1]] || null;
+    return sym.charAt(0) === '^' ? null : 'USD';
+  }
+};
+
+/* =============================================================================
+ * Storage – localStorage w try/catch (na file:// może być niedostępny)
+ * ========================================================================== */
+var Storage = {
+  available: false,
+  init: function () {
+    try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); Storage.available = true; }
+    catch (e) { Storage.available = false; }
+    return Storage.available;
+  },
+  get: function (key) {
+    if (!Storage.available) return null;
+    try { var v = localStorage.getItem(key); return v == null ? null : JSON.parse(v); } catch (e) { return null; }
+  },
+  set: function (key, value) {
+    if (!Storage.available) return false;
+    try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch (e) { return false; }
+  },
+  remove: function (key) { if (Storage.available) try { localStorage.removeItem(key); } catch (e) { /* brak */ } }
+};
+
+/* =============================================================================
+ * DataSource – lustro GitHub, NBP, parser CSV, cache
+ * ========================================================================== */
+var DataSource = {
+  /* quotes[SYM] = { rows: [[iso, close]], origin: 'mirror'|'file', fetchedAt, session: 'mirror'|'cache'|'file', error? } */
+  quotes: {},
+  /* fx[KOD] = { rows, origin: 'mirror'|'nbp'|'file', fetchedAt } – PLN za 1 jednostkę */
+  fx: {},
+  /* manifest z lustra + metadane symboli */
+  manifest: null, manifestAt: null, symbols: {}, mirrorError: null, syncing: false, lastSync: null,
+  dataUrl: Config.DEFAULT_DATA_URL,
+
+  /* ---------- parser CSV ---------- */
+  stripDiacritics: function (s) {
+    return String(s).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').replace(/Ł/g, 'L');
+  },
+  parseNumber: function (s) {
+    if (s == null) return NaN;
+    s = String(s).trim().replace(/^"|"$/g, '').replace(/[\s\u00a0]/g, '');
+    if (s === '') return NaN;
+    var lc = s.lastIndexOf(','), ld = s.lastIndexOf('.');
+    if (lc >= 0 && ld >= 0) { if (lc > ld) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/,/g, ''); }
+    else if (lc >= 0) s = s.replace(',', '.');
+    return /^[-+]?\d*\.?\d+(e[-+]?\d+)?$/i.test(s) ? parseFloat(s) : NaN;
+  },
+  parseDate: function (s) {
+    s = String(s || '').trim().replace(/^"|"$/g, '');
+    var m;
+    if ((m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/))) return DataSource._mk(m[1], m[2], m[3]);
+    if ((m = s.match(/^(\d{4})(\d{2})(\d{2})$/))) return DataSource._mk(m[1], m[2], m[3]);
+    if ((m = s.match(/^(\d{4})[.\/](\d{1,2})[.\/](\d{1,2})$/))) return DataSource._mk(m[1], m[2], m[3]);
+    if ((m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/))) return DataSource._mk(m[3], m[2], m[1]);
+    return null;
+  },
+  _mk: function (y, m, d) {
+    var iso = y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+    var dt = new Date(Util.dateMs(iso));
+    if (isNaN(dt) || dt.getUTCMonth() + 1 !== +m || dt.getUTCDate() !== +d) return null;
+    return iso;
+  },
+  /** Zwraca { rows: [[iso, close]], skipped } albo rzuca Error z komunikatem po polsku. */
+  parseCSV: function (text) {
+    text = String(text == null ? '' : text).replace(/^\uFEFF/, '');
+    var head = text.slice(0, 600).toLowerCase();
+    if (/<!doctype|<html|<script/.test(head)) throw new Error('To strona HTML, a nie plik CSV (np. weryfikacja przeglądarki Stooq).');
+    if (/przekroczony dzienny limit|exceeded the daily hits limit/.test(head)) throw new Error('Stooq: przekroczony dzienny limit pobrań.');
+    var lines = text.split(/\r\n|\n|\r/).map(function (l) { return l.trim(); }).filter(function (l) { return l !== ''; });
+    if (!lines.length) throw new Error('Plik jest pusty.');
+    if (lines.length === 1 && /brak danych|no data/i.test(lines[0])) throw new Error('Źródło zwróciło „Brak danych” – sprawdź symbol.');
+    var first = lines[0];
+    var sep = first.split(';').length > 1 ? ';' : (first.split('\t').length > 1 ? '\t' : ',');
+    var split = function (l) { return l.split(sep).map(function (c) { return c.trim().replace(/^"|"$/g, ''); }); };
+    var header = split(first).map(function (h) { return DataSource.stripDiacritics(h).toLowerCase().replace(/[<>]/g, ''); });
+    var dateIdx = -1, closeIdx = -1, start = 1;
+    header.forEach(function (h, i) {
+      if (dateIdx < 0 && (h === 'data' || h === 'date' || h === 'dzien' || h === 'day')) dateIdx = i;
+      if (closeIdx < 0 && (h === 'zamkniecie' || h === 'close' || h === 'kurs' || h === 'zamk' || h === 'mid')) closeIdx = i;
+    });
+    if (dateIdx < 0 || closeIdx < 0) {
+      if (DataSource.parseDate(split(first)[0])) { dateIdx = 0; closeIdx = header.length >= 5 ? 4 : header.length - 1; start = 0; }
+      else throw new Error('Nie rozpoznano kolumn – wymagane „Data/Date” i „Zamkniecie/Close”.');
+    }
+    var map = {}, skipped = 0;
+    for (var i = start; i < lines.length; i++) {
+      var c = split(lines[i]), d = DataSource.parseDate(c[dateIdx]), v = DataSource.parseNumber(c[closeIdx]);
+      if (!d || !isFinite(v) || v <= 0) { skipped++; continue; }
+      map[d] = v;
+    }
+    var rows = Object.keys(map).sort().map(function (d) { return [d, map[d]]; });
+    if (!rows.length) throw new Error('Nie znaleziono poprawnych wierszy z datą i ceną zamknięcia.');
+    return { rows: rows, skipped: skipped };
+  },
+  /** Symbol Yahoo z nazwy pliku: Stooq "pkn_d.csv" → PKN.WA, "aapl_us_d.csv" → AAPL, "vod_uk_d.csv" → VOD.L;
+   *  pliki z lustra "PKN.WA.csv" → PKN.WA, "_GSPC.csv" → ^GSPC. */
+  symbolFromFilename: function (name) {
+    var base = String(name || '').replace(/^.*[\\\/]/, '').replace(/\.(csv|txt)$/i, '').replace(/\s*\(\d+\)\s*$/, '').trim();
+    if (!base) return null;
+    var m = base.match(/^(.+?)_d$/i);
+    if (m) {   // konwencja Stooq
+      var s = m[1].toLowerCase().replace(/_/g, '.');
+      if (Config.STOOQ_INDEX[s]) return Config.STOOQ_INDEX[s];
+      var parts = s.match(/^(.+)\.([a-z]{2})$/);
+      if (parts && Config.STOOQ_SUFFIX.hasOwnProperty(parts[2])) return (parts[1] + Config.STOOQ_SUFFIX[parts[2]]).toUpperCase();
+      return /^[a-z0-9]+$/.test(s) ? s.toUpperCase() + '.WA' : null;
+    }
+    var sym = Util.normSym(base.replace(/^_/, '^'));
+    return Util.isSym(sym) ? sym : null;
+  },
+  /** Symbol Stooq dla linku awaryjnego (null, gdy Stooq nie ma odpowiednika). */
+  stooqSymbol: function (sym) {
+    sym = Util.normSym(sym);
+    for (var k in Config.STOOQ_INDEX) if (Config.STOOQ_INDEX[k] === sym) return k;
+    var m = sym.match(/^([A-Z0-9\-]+)(?:\.([A-Z]{1,2}))?$/);
+    if (!m) return null;
+    var map = { WA: '', '': '.us', DE: '.de', L: '.uk', T: '.jp', BD: '.hu' };
+    var suf = m[2] || '';
+    return map.hasOwnProperty(suf) ? (m[1] + map[suf]).toLowerCase() : null;
+  },
+
+  /* ---------- metadane walorów ---------- */
+  currencyOf: function (sym) {
+    sym = Util.normSym(sym);
+    var s = DataSource.symbols[sym];
+    return (s && s.c) || Util.guessCurrency(sym);
+  },
+  nameOf: function (sym) { var s = DataSource.symbols[Util.normSym(sym)]; return s ? s.n : ''; },
+  /** Dopasowuje wpisany tekst do symbolu: dokładny symbol, sam ticker GPW (PKN → PKN.WA), nazwa. */
+  resolveSymbol: function (text) {
+    var raw = String(text || '').trim();
+    var s = Util.normSym(raw.split(/\s+[—–-]\s+/)[0]);
+    if (!s) return '';
+    if (DataSource.symbols[s] || DataSource.quotes[s]) return s;
+    if (DataSource.symbols[s + '.WA'] || DataSource.quotes[s + '.WA']) return s + '.WA';
+    var low = raw.toLowerCase();
+    if (low.length >= 3) for (var k in DataSource.symbols) if ((DataSource.symbols[k].n || '').toLowerCase() === low) return k;
+    return s;
+  },
+
+  /* ---------- cache ---------- */
+  packRows: function (rows) { return rows.map(function (r) { return r[0].replace(/-/g, '') + ':' + r[1]; }).join('|'); },
+  unpackRows: function (s) {
+    return String(s || '').split('|').map(function (p) {
+      var a = p.split(':');
+      return [a[0].slice(0, 4) + '-' + a[0].slice(4, 6) + '-' + a[0].slice(6, 8), parseFloat(a[1])];
+    }).filter(function (r) { return isFinite(r[1]) && r[1] > 0; });
+  },
+  loadCache: function () {
+    var m = Storage.get(Config.STORAGE_MANIFEST);
+    if (m && m.manifest) DataSource.applyManifest(m.manifest, m.at, true);
+    var raw = Storage.get(Config.STORAGE_QUOTES) || {};
+    Object.keys(raw).forEach(function (t) {
+      var q = raw[t], rows = DataSource.unpackRows(q.d);
+      if (rows.length) DataSource.quotes[t] = { rows: rows, origin: q.o, fetchedAt: q.f, session: 'cache', trimmed: !!q.tr };
+    });
+    // migracja cache z wersji 1 (tylko GPW, klucze 'pkn', 'wig20')
+    var v1 = Storage.get(Config.STORAGE_QUOTES_V1);
+    if (v1) {
+      Object.keys(v1).forEach(function (t) {
+        var sym = UI.migrateTicker(t), rows = DataSource.unpackRows(v1[t].d);
+        if (rows.length && !DataSource.quotes[sym]) DataSource.quotes[sym] = { rows: rows, origin: 'file', fetchedAt: v1[t].f, session: 'cache' };
+      });
+      Storage.remove(Config.STORAGE_QUOTES_V1);
+    }
+    var fx = Storage.get(Config.STORAGE_FX) || {};
+    Object.keys(fx).forEach(function (c) {
+      var rows = DataSource.unpackRows(fx[c].d);
+      if (rows.length) DataSource.fx[c] = { rows: rows, origin: fx[c].o, fetchedAt: fx[c].f, session: 'cache', trimmed: !!fx[c].tr };
+    });
+  },
+  /** Zapis cache. Dane z lustra są przycinane do potrzebnego zakresu (można je pobrać ponownie). */
+  saveCache: function (cutoff) {
+    if (!Storage.available) return true;
+    var pack = function (store) {
+      var out = {};
+      Object.keys(store).forEach(function (k) {
+        var q = store[k];
+        if (!q.rows || !q.rows.length) return;
+        var rows = q.rows, tr = false;
+        if (q.origin !== 'file' && cutoff) {
+          var i = 0; while (i < rows.length - 1 && rows[i][0] < cutoff) i++;
+          if (i > 0) { rows = rows.slice(i); tr = true; }
+        }
+        out[k] = { o: q.origin, f: q.fetchedAt, d: DataSource.packRows(rows), tr: tr || q.trimmed || undefined };
+      });
+      return out;
+    };
+    var a = Storage.set(Config.STORAGE_QUOTES, pack(DataSource.quotes));
+    var b = Storage.set(Config.STORAGE_FX, pack(DataSource.fx));
+    return a && b;
+  },
+  setQuotes: function (sym, rows, origin) {
+    sym = Util.normSym(sym);
+    DataSource.quotes[sym] = { rows: rows, origin: origin, fetchedAt: new Date().toISOString(), session: origin };
+  },
+  getRows: function (sym) {
+    var q = DataSource.quotes[Util.normSym(sym)];
+    return q && q.rows && q.rows.length ? q.rows : null;
+  },
+
+  /* ---------- sieć ---------- */
+  fetchWithTimeout: function (url, ms) {
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = setTimeout(function () { if (ctrl) ctrl.abort(); }, ms || Config.FETCH_TIMEOUT_MS);
+    return fetch(url, { signal: ctrl ? ctrl.signal : undefined, credentials: 'omit' })
+      .finally(function () { clearTimeout(timer); });
+  },
+  describeFetchError: function (e) {
+    if (e && e.name === 'AbortError') return 'przekroczono limit czasu (10 s)';
+    if (e && e.name === 'TypeError') return 'brak połączenia (sieć, proxy firmowe lub blokada CORS)';
+    return (e && e.message) || String(e);
+  },
+  getText: function (url) {
+    return DataSource.fetchWithTimeout(url).then(function (r) {
+      if (!r.ok) throw new Error(r.status === 404 ? 'brak pliku na serwerze (404)' : 'HTTP ' + r.status);
+      return r.text();
+    }).catch(function (e) { throw new Error(e.name === 'TypeError' || e.name === 'AbortError' ? DataSource.describeFetchError(e) : e.message); });
+  },
+  applyManifest: function (m, at, fromCache) {
+    var idx = {}, f = m.fields || [];
+    var col = function (name, def) { var i = f.indexOf(name); return i >= 0 ? i : def; };
+    var iS = col('symbol', 0), iN = col('name', 1), iM = col('market', 2), iT = col('type', 3), iC = col('currency', 4), iF = col('first', 5), iL = col('last', 6), iP = col('lastClose', 7);
+    (m.symbols || []).forEach(function (r) {
+      idx[Util.normSym(r[iS])] = { n: r[iN] || '', m: r[iM] || '', t: r[iT] || '', c: r[iC] || null, f: r[iF], l: r[iL], p: r[iP] };
+    });
+    DataSource.manifest = m; DataSource.manifestAt = at || new Date().toISOString(); DataSource.symbols = idx;
+    if (!fromCache) Storage.set(Config.STORAGE_MANIFEST, { at: DataSource.manifestAt, manifest: m });
+  },
+  loadManifest: function () {
+    return DataSource.getText(DataSource.dataUrl + 'index.json?t=' + Date.now()).then(function (text) {
+      var m = JSON.parse(text);
+      if (!m || !Array.isArray(m.symbols)) throw new Error('nieprawidłowy manifest');
+      DataSource.applyManifest(m);
+      DataSource.mirrorError = null;
+      return m;
+    });
+  },
+  /** Pobiera z lustra notowania symbolu, jeśli są nowsze lub sięgają dalej wstecz niż posiadane. */
+  ensureSymbol: function (sym, needFrom) {
+    var info = DataSource.symbols[sym], q = DataSource.quotes[sym];
+    if (!info || !DataSource.manifest) return Promise.resolve(false);
+    var has = q && q.rows && q.rows.length;
+    var stale = !has || q.rows[q.rows.length - 1][0] < info.l;
+    var tooShort = has && q.origin !== 'file' && needFrom && q.rows[0][0] > needFrom && info.f < q.rows[0][0];
+    if (!stale && !tooShort) return Promise.resolve(false);
+    return DataSource.getText(DataSource.dataUrl + 'q/' + encodeURIComponent(Util.symFile(sym)) + '?v=' + encodeURIComponent(DataSource.manifest.generated))
+      .then(function (text) {
+        var p = DataSource.parseCSV(text);
+        DataSource.setQuotes(sym, p.rows, 'mirror');
+        return true;
+      }).catch(function (e) { if (q) q.error = e.message; else DataSource.quotes[sym] = { rows: null, session: 'none', error: e.message }; return false; });
+  },
+  /** Kurs waluty: lustro, a gdy niedostępne – bezpośrednio NBP (CORS dozwolony). */
+  ensureFx: function (code, needFrom) {
+    if (code === 'PLN') return Promise.resolve(false);
+    var cur = DataSource.fx[code], has = cur && cur.rows && cur.rows.length;
+    var lastHave = has ? cur.rows[cur.rows.length - 1][0] : null;
+    var mInfo = DataSource.manifest && DataSource.manifest.fx && DataSource.manifest.fx[code];
+    var needMirror = mInfo && (!has || lastHave < mInfo[1] || (needFrom && cur.rows[0][0] > needFrom && mInfo[0] < cur.rows[0][0]));
+    if (needMirror) {
+      return DataSource.getText(DataSource.dataUrl + 'fx/' + code + '.csv?v=' + encodeURIComponent(DataSource.manifest.generated))
+        .then(function (text) { DataSource.fx[code] = { rows: DataSource.parseCSV(text).rows, origin: 'mirror', fetchedAt: new Date().toISOString(), session: 'mirror' }; return true; })
+        .catch(function () { return DataSource.ensureFxNbp(code, needFrom); });
+    }
+    if (!mInfo) return DataSource.ensureFxNbp(code, needFrom);
+    return Promise.resolve(false);
+  },
+  ensureFxNbp: function (code, needFrom) {
+    var cur = DataSource.fx[code], has = cur && cur.rows && cur.rows.length, today = Util.todayISO();
+    var from = needFrom || Util.addDays(today, -400);
+    if (from < '2002-01-02') from = '2002-01-02';
+    if (has && cur.rows[0][0] <= from && Util.daysBetween(cur.rows[cur.rows.length - 1][0], today) <= 3) return Promise.resolve(false);
+    if (has && cur.rows[0][0] <= from) from = Util.addDays(cur.rows[cur.rows.length - 1][0], -7);
+    return DataSource.fetchNbpRates(code, from, today).then(function (rows) {
+      if (!rows.length) return false;
+      var map = {};
+      (has ? cur.rows : []).concat(rows).forEach(function (r) { map[r[0]] = r[1]; });
+      DataSource.fx[code] = { rows: Object.keys(map).sort().map(function (d) { return [d, map[d]]; }), origin: 'nbp', fetchedAt: new Date().toISOString(), session: 'nbp' };
+      return true;
+    }).catch(function () { return false; });
+  },
+  /** Kursy średnie NBP (tabela A), okna po 93 dni. Zwraca [[iso, mid]]. */
+  fetchNbpRates: function (code, from, to) {
+    var windows = [], s = from;
+    while (s <= to) { var e = Util.addDays(s, 92); if (e > to) e = to; windows.push([s, e]); s = Util.addDays(e, 1); }
+    return windows.reduce(function (p, w) {
+      return p.then(function (acc) {
+        return DataSource.fetchWithTimeout(Config.nbpUrl(code, w[0], w[1])).then(function (res) {
+          if (res.status === 404) return acc;
+          if (!res.ok) throw new Error('NBP HTTP ' + res.status);
+          return res.json().then(function (j) { return acc.concat((j.rates || []).map(function (r) { return [r.effectiveDate, r.mid]; })); });
+        });
+      });
+    }, Promise.resolve([]));
+  }
+};
+
+/* =============================================================================
+ * PortfolioEngine – czyste funkcje obliczeniowe (bez DOM)
+ * Transakcja: { id, seq, ticker, type: 'BUY'|'SELL', date, qty, price, fee, currency, fx? }
+ *   price i fee w walucie notowań (currency), fx – opcjonalny kurs PLN wpisany ręcznie.
+ * ctx: { prices: {SYM: [[iso, close]]}, ccy: {SYM: waluta}, fx: {KOD: [[iso, PLN za 1]]} }
+ * Wszystkie kwoty wynikowe w PLN (o ile nie zaznaczono „native”).
+ * ========================================================================== */
+var PortfolioEngine = {
+  EPS: 1e-9,
+
+  sortTx: function (txs) {
+    return txs.slice().sort(function (a, b) {
+      if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+      if (a.type !== b.type) return a.type === 'BUY' ? -1 : 1;
+      return (a.seq || 0) - (b.seq || 0);
+    });
+  },
+
+  validateSequence: function (txs) {
+    var held = {};
+    var sorted = PortfolioEngine.sortTx(txs);
+    for (var i = 0; i < sorted.length; i++) {
+      var t = sorted[i], k = Util.normSym(t.ticker);
+      held[k] = held[k] || 0;
+      if (t.type === 'BUY') held[k] += t.qty;
+      else {
+        if (t.qty > held[k] + PortfolioEngine.EPS) return { ok: false, tx: t, held: held[k] };
+        held[k] -= t.qty;
+      }
+    }
+    return { ok: true };
+  },
+
+  heldAt: function (txs, ticker, date, excludeId) {
+    var k = Util.normSym(ticker), q = 0;
+    txs.forEach(function (t) {
+      if (t.id === excludeId || Util.normSym(t.ticker) !== k || t.date > date) return;
+      q += t.type === 'BUY' ? t.qty : -t.qty;
+    });
+    return q;
+  },
+
+  /** Ostatnia wartość z datą <= date (dni bez notowań → poprzednie zamknięcie). */
+  priceAt: function (rows, date) {
+    if (!rows || !rows.length || date < rows[0][0]) return null;
+    var lo = 0, hi = rows.length - 1;
+    while (lo < hi) { var mid = (lo + hi + 1) >> 1; if (rows[mid][0] <= date) lo = mid; else hi = mid - 1; }
+    return { date: rows[lo][0], close: rows[lo][1] };
+  },
+
+  /** PLN za 1 jednostkę waluty notowań w dniu date (null, gdy brak kursu). */
+  fxRate: function (ctx, ccy, date) {
+    var info = Util.ccyInfo(ccy);
+    if (info.code === 'PLN') return info.factor;
+    var q = PortfolioEngine.priceAt(ctx && ctx.fx ? ctx.fx[info.code] : null, date);
+    return q ? q.close * info.factor : null;
+  },
+  txCurrency: function (t, ctx) { return t.currency || (ctx && ctx.ccy && ctx.ccy[Util.normSym(t.ticker)]) || 'PLN'; },
+  txRate: function (t, ctx) { return t.fx > 0 ? t.fx : PortfolioEngine.fxRate(ctx, PortfolioEngine.txCurrency(t, ctx), t.date); },
+
+  /** FIFO w PLN (koszt po kursie z dnia zakupu, przychód po kursie z dnia sprzedaży – zysk obejmuje efekt walutowy).
+   *  Równolegle liczona średnia cena w walucie notowań. */
+  fifo: function (txs, asOf, ctx) {
+    var pos = {}, missingFx = {};
+    PortfolioEngine.sortTx(txs).forEach(function (t) {
+      if (asOf && t.date > asOf) return;
+      var k = Util.normSym(t.ticker), ccy = PortfolioEngine.txCurrency(t, ctx);
+      var rate = PortfolioEngine.txRate(t, ctx);
+      if (rate == null) { missingFx[Util.ccyInfo(ccy).code] = true; rate = NaN; }
+      var p = pos[k] || (pos[k] = { ticker: k, currency: ccy, lots: [], qty: 0, cost: 0, costNative: 0, realized: 0, buyTotal: 0, sellTotal: 0, fees: 0, lastTxPrice: null, lastTxDate: null });
+      p.fees += (t.fee || 0) * rate;
+      p.lastTxPrice = t.price; p.lastTxDate = t.date;
+      if (t.type === 'BUY') {
+        var native = t.qty * t.price + (t.fee || 0);
+        p.lots.push({ qty: t.qty, unitNative: native / t.qty, unitPLN: native * rate / t.qty });
+        p.buyTotal += native * rate;
+      } else {
+        var proceeds = (t.qty * t.price - (t.fee || 0)) * rate;
+        var remaining = t.qty, basis = 0;
+        while (remaining > PortfolioEngine.EPS && p.lots.length) {
+          var lot = p.lots[0], take = Math.min(lot.qty, remaining);
+          basis += take * lot.unitPLN; lot.qty -= take; remaining -= take;
+          if (lot.qty <= PortfolioEngine.EPS) p.lots.shift();
+        }
+        if (remaining > PortfolioEngine.EPS) throw new Error('Sprzedaż ' + k + ' z ' + t.date + ' przekracza posiadaną ilość.');
+        p.realized += proceeds - basis;
+        p.sellTotal += proceeds;
+      }
+      p.qty = 0; p.cost = 0; p.costNative = 0;
+      p.lots.forEach(function (l) { p.qty += l.qty; p.cost += l.qty * l.unitPLN; p.costNative += l.qty * l.unitNative; });
+    });
+    pos.__missingFx = Object.keys(missingFx);
+    return pos;
+  },
+
+  cashFlows: function (txs, asOf, ctx) {
+    return PortfolioEngine.sortTx(txs).filter(function (t) { return !asOf || t.date <= asOf; }).map(function (t) {
+      var r = PortfolioEngine.txRate(t, ctx);
+      return { date: t.date, amount: (t.type === 'BUY' ? -(t.qty * t.price + (t.fee || 0)) : (t.qty * t.price - (t.fee || 0))) * (r == null ? NaN : r) };
+    });
+  },
+
+  /** XIRR (konwencja Excela: rok = 365 dni). Newton + bisekcja. null gdy brak rozwiązania. */
+  xirr: function (flows) {
+    if (!flows || flows.length < 2 || flows.some(function (f) { return !isFinite(f.amount); })) return null;
+    var hasNeg = flows.some(function (f) { return f.amount < 0; }), hasPos = flows.some(function (f) { return f.amount > 0; });
+    if (!hasNeg || !hasPos) return null;
+    var d0 = flows.reduce(function (m, f) { return f.date < m ? f.date : m; }, flows[0].date);
+    var ts = flows.map(function (f) { return Util.daysBetween(d0, f.date) / 365; });
+    if (Math.max.apply(null, ts) <= 0) return null;
+    var npv = function (r) { var s = 0; for (var i = 0; i < flows.length; i++) s += flows[i].amount / Math.pow(1 + r, ts[i]); return s; };
+    var dnpv = function (r) { var s = 0; for (var i = 0; i < flows.length; i++) s -= ts[i] * flows[i].amount / Math.pow(1 + r, ts[i] + 1); return s; };
+    var r = 0.1;
+    for (var it = 0; it < 100; it++) {
+      var f = npv(r), df = dnpv(r);
+      if (!isFinite(f) || !isFinite(df) || df === 0) break;
+      var nr = r - f / df;
+      if (nr <= -0.999999) nr = (r - 0.999999) / 2;
+      if (Math.abs(nr - r) < 1e-10) { if (Math.abs(npv(nr)) < 1e-6 * Math.max(1, Math.abs(flows[0].amount))) return nr; break; }
+      r = nr;
+    }
+    var lo = -0.999999, hi = 1, flo = npv(lo), fhi = npv(hi);
+    while (flo * fhi > 0 && hi < 1e6) { hi *= 2; fhi = npv(hi); }
+    if (flo * fhi > 0) return null;
+    for (var j = 0; j < 300; j++) {
+      var mid = (lo + hi) / 2, fm = npv(mid);
+      if (Math.abs(fm) < 1e-9 || (hi - lo) < 1e-12) return mid;
+      if (flo * fm < 0) hi = mid; else { lo = mid; flo = fm; }
+    }
+    return (lo + hi) / 2;
+  },
+
+  maxDrawdown: function (values) {
+    var peak = -Infinity, peakIdx = -1, best = { value: 0, peakIdx: -1, troughIdx: -1 };
+    for (var i = 0; i < values.length; i++) {
+      var v = values[i];
+      if (v == null || !isFinite(v)) continue;
+      if (v > peak) { peak = v; peakIdx = i; }
+      if (peak > 0) { var dd = v / peak - 1; if (dd < best.value) best = { value: dd, peakIdx: peakIdx, troughIdx: i }; }
+    }
+    return best;
+  },
+
+  /** Wycena pozycji i portfela na dzień asOf (PLN). */
+  valuation: function (txs, ctx, asOf) {
+    var pos = PortfolioEngine.fifo(txs, asOf, ctx), missingFx = pos.__missingFx.slice();
+    delete pos.__missingFx;
+    var list = Object.keys(pos).map(function (k) {
+      var p = pos[k], ccy = (ctx.ccy && ctx.ccy[k]) || p.currency;
+      var q = PortfolioEngine.priceAt(ctx.prices[k], asOf);
+      var price = q ? q.close : p.lastTxPrice;
+      var rate = PortfolioEngine.fxRate(ctx, ccy, asOf);
+      if (rate == null && p.qty > PortfolioEngine.EPS) { var c = Util.ccyInfo(ccy).code; if (missingFx.indexOf(c) < 0) missingFx.push(c); }
+      var value = p.qty > PortfolioEngine.EPS ? p.qty * price * (rate == null ? NaN : rate) : 0;
+      return {
+        ticker: k, currency: ccy, qty: p.qty, avgPrice: p.qty > 0 ? p.costNative / p.qty : null, cost: p.cost,
+        price: price, priceDate: q ? q.date : p.lastTxDate, priceFromQuotes: !!q, rate: rate,
+        value: value, unrealized: value - p.cost, unrealizedPct: p.cost > 0 ? (value - p.cost) / p.cost : null,
+        realized: p.realized, buyTotal: p.buyTotal, sellTotal: p.sellTotal, fees: p.fees,
+        totalPL: value - p.cost + p.realized, closed: p.qty <= PortfolioEngine.EPS
+      };
+    });
+    var T = list.reduce(function (s, p) {
+      s.value += p.value; s.cost += p.cost; s.realized += p.realized; s.unrealized += p.unrealized;
+      s.buyTotal += p.buyTotal; s.sellTotal += p.sellTotal; s.fees += p.fees; return s;
+    }, { value: 0, cost: 0, realized: 0, unrealized: 0, buyTotal: 0, sellTotal: 0, fees: 0 });
+    list.forEach(function (p) { p.weight = T.value > 0 ? p.value / T.value : 0; });
+    T.netInvested = T.buyTotal - T.sellTotal;
+    T.totalPL = T.value + T.sellTotal - T.buyTotal;
+    T.simpleReturn = T.buyTotal > 0 ? T.totalPL / T.buyTotal : null;
+    var flows = PortfolioEngine.cashFlows(txs, asOf, ctx);
+    if (flows.length && T.value > PortfolioEngine.EPS) flows.push({ date: asOf, amount: T.value });
+    T.xirr = PortfolioEngine.xirr(flows);
+    T.missingQuotes = list.filter(function (p) { return !p.closed && !p.priceFromQuotes; }).map(function (p) { return p.ticker; });
+    T.missingFx = missingFx;
+    return { positions: list, totals: T };
+  },
+
+  /** Szereg dzienny od 1. transakcji do asOf (PLN): value, invested (kupna − sprzedaże), twr (indeks 100),
+   *  bench (benchmark przeliczony na PLN, 100 w dniu startu).
+   *  TWR: r = (V_t − V_{t−1} − F_t) / (V_{t−1} + max(F_t, 0)), F_t – przepływ netto dnia. */
+  timeSeries: function (txs, ctx, benchSym, asOf) {
+    var sorted = PortfolioEngine.sortTx(txs).filter(function (t) { return t.date <= asOf; });
+    if (!sorted.length) return null;
+    var start = sorted[0].date, benchRows = benchSym ? ctx.prices[benchSym] : null;
+    var dateSet = {}, syms = {};
+    sorted.forEach(function (t) { dateSet[t.date] = true; syms[Util.normSym(t.ticker)] = true; });
+    Object.keys(syms).forEach(function (k) {
+      var rows = ctx.prices[k]; if (!rows) return;
+      for (var i = 0; i < rows.length; i++) if (rows[i][0] >= start && rows[i][0] <= asOf) dateSet[rows[i][0]] = true;
+    });
+    if (benchRows) for (var bi = 0; bi < benchRows.length; bi++) if (benchRows[bi][0] >= start && benchRows[bi][0] <= asOf) dateSet[benchRows[bi][0]] = true;
+    var dates = Object.keys(dateSet).sort();
+    var cursors = {};
+    var lookup = function (key, rows, d) {
+      if (!rows || !rows.length) return null;
+      var c = cursors[key] || 0;
+      while (c + 1 < rows.length && rows[c + 1][0] <= d) c++;
+      cursors[key] = c;
+      return rows[c][0] <= d ? rows[c][1] : null;
+    };
+    var rateAt = function (ccy, d) {
+      var info = Util.ccyInfo(ccy);
+      if (info.code === 'PLN') return info.factor;
+      var v = lookup('fx:' + info.code, ctx.fx ? ctx.fx[info.code] : null, d);
+      return v == null ? null : v * info.factor;
+    };
+    var held = {}, lastTxPrice = {}, ccyOf = {}, txi = 0, invested = 0, prevV = 0, idx = 100, benchBase = null;
+    var benchCcy = benchSym ? ((ctx.ccy && ctx.ccy[benchSym]) || 'PLN') : 'PLN';
+    var out = { dates: dates, value: [], invested: [], twr: [], bench: [] };
+    for (var di = 0; di < dates.length; di++) {
+      var d = dates[di], flow = 0;
+      while (txi < sorted.length && sorted[txi].date === d) {
+        var t = sorted[txi++], k = Util.normSym(t.ticker);
+        held[k] = (held[k] || 0) + (t.type === 'BUY' ? t.qty : -t.qty);
+        lastTxPrice[k] = t.price;
+        ccyOf[k] = (ctx.ccy && ctx.ccy[k]) || PortfolioEngine.txCurrency(t, ctx);
+        var r0 = PortfolioEngine.txRate(t, ctx);
+        flow += (t.type === 'BUY' ? t.qty * t.price + (t.fee || 0) : -(t.qty * t.price - (t.fee || 0))) * (r0 == null ? NaN : r0);
+      }
+      invested += flow;
+      var V = 0;
+      for (var key in held) {
+        if (held[key] <= PortfolioEngine.EPS) continue;
+        var px = lookup('p:' + key, ctx.prices[key], d);
+        if (px == null) px = lastTxPrice[key];
+        var rt = rateAt(ccyOf[key], d);
+        V += held[key] * px * (rt == null ? NaN : rt);
+      }
+      var denom = prevV + Math.max(flow, 0);
+      var r = denom > PortfolioEngine.EPS ? (V - prevV - flow) / denom : 0;
+      idx = idx * (1 + r);
+      prevV = V;
+      out.value.push(V); out.invested.push(invested); out.twr.push(isFinite(idx) ? idx : null);
+      var b = lookup('bench', benchRows, d), br = rateAt(benchCcy, d);
+      var bPLN = b != null && br != null ? b * br : null;
+      if (bPLN != null && benchBase == null) benchBase = bPLN;
+      out.bench.push(bPLN != null && benchBase ? 100 * bPLN / benchBase : null);
+    }
+    out.maxDrawdown = PortfolioEngine.maxDrawdown(out.twr);
+    return out;
+  }
+};
+
+/* =============================================================================
+ * Fmt – formatowanie Intl pl-PL
+ * ========================================================================== */
+var Fmt = (function () {
+  var L = Config.LOCALE, curCache = {};
+  var cur = function (c, signed) {
+    var key = c + (signed ? '+' : '');
+    if (!curCache[key]) {
+      try { curCache[key] = new Intl.NumberFormat(L, { style: 'currency', currency: c, signDisplay: signed ? 'exceptZero' : 'auto' }); }
+      catch (e) { curCache[key] = new Intl.NumberFormat(L, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+    }
+    return curCache[key];
+  };
+  var num = new Intl.NumberFormat(L, { maximumFractionDigits: 4 });
+  var price = new Intl.NumberFormat(L, { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  var pct = new Intl.NumberFormat(L, { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2, signDisplay: 'exceptZero' });
+  var pctPlain = new Intl.NumberFormat(L, { style: 'percent', minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  var date = new Intl.DateTimeFormat(L, { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
+  var monthYear = new Intl.DateTimeFormat(L, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+  var dayMonth = new Intl.DateTimeFormat(L, { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  var dateTime = new Intl.DateTimeFormat(L, { dateStyle: 'short', timeStyle: 'short' });
+  var compact = new Intl.NumberFormat(L, { notation: 'compact', maximumFractionDigits: 1 });
+  var dash = '—';
+  var ok = function (x) { return x != null && isFinite(x); };
+  return {
+    pln: function (x) { return ok(x) ? cur('PLN').format(x) : dash; },
+    plnSigned: function (x) { return ok(x) ? cur('PLN', true).format(x) : dash; },
+    money: function (x, c) {
+      if (!ok(x)) return dash;
+      if (c === 'GBp' || c === 'GBX') return price.format(x) + ' GBp';
+      return /^[A-Z]{3}$/.test(c || '') ? cur(c).format(x) : price.format(x) + ' ' + (c || '');
+    },
+    num: function (x) { return ok(x) ? num.format(x) : dash; },
+    price: function (x) { return ok(x) ? price.format(x) : dash; },
+    pct: function (x) { return ok(x) ? pct.format(x) : dash; },
+    pctPlain: function (x) { return ok(x) ? pctPlain.format(x) : dash; },
+    date: function (iso) { return iso ? date.format(new Date(Util.dateMs(iso))) : dash; },
+    monthYear: function (ms) { return monthYear.format(new Date(ms)); },
+    dayMonth: function (ms) { return dayMonth.format(new Date(ms)); },
+    dateTime: function (isoDt) { try { return dateTime.format(new Date(isoDt)); } catch (e) { return dash; } },
+    compact: function (x) { return compact.format(x); },
+    csvNum: function (x, d) { return ok(x) ? x.toFixed(d == null ? 2 : d).replace('.', ',') : ''; },
+    cls: function (x) { return !ok(x) || Math.abs(x) < 0.005 ? '' : (x > 0 ? 'gain' : 'loss'); }
+  };
+})();
+
+/* =============================================================================
+ * Charts – wykresy liniowe na <canvas> z tooltipem i celownikiem
+ * ========================================================================== */
+var Charts = {
+  css: function (name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); },
+
+  niceTicks: function (min, max, count) {
+    if (min === max) { var pad = Math.abs(min) * 0.05 || 1; min -= pad; max += pad; }
+    var span = max - min, step = Math.pow(10, Math.floor(Math.log10(span / count)));
+    var err = (span / count) / step;
+    if (err >= 7.5) step *= 10; else if (err >= 3.5) step *= 5; else if (err >= 1.5) step *= 2;
+    var lo = Math.floor(min / step) * step, hi = Math.ceil(max / step) * step, ticks = [];
+    for (var v = lo; v <= hi + step / 2; v += step) ticks.push(Math.round(v / step) * step);
+    return { min: lo, max: hi, ticks: ticks };
+  },
+
+  draw: function (canvas, cfg) {
+    canvas._cfg = cfg;
+    if (!canvas._bound) Charts.bind(canvas);
+    Charts.render(canvas, null);
+  },
+
+  bind: function (canvas) {
+    canvas._bound = true;
+    var tip = canvas.parentNode.querySelector('.tooltip');
+    var leave = function () { tip.classList.add('hidden'); Charts.render(canvas, null); };
+    var move = function (ev) {
+      var L = canvas._layout; if (!L) return;
+      var rect = canvas.getBoundingClientRect();
+      var x = (ev.touches ? ev.touches[0].clientX : ev.clientX) - rect.left;
+      if (x < L.l - 10 || x > L.l + L.w + 10) { leave(); return; }
+      var t = L.t0 + (x - L.l) / L.w * (L.t1 - L.t0);
+      var ts = L.ts, lo = 0, hi = ts.length - 1;
+      while (hi - lo > 1) { var m = (lo + hi) >> 1; if (ts[m] < t) lo = m; else hi = m; }
+      var idx = Math.abs(ts[lo] - t) <= Math.abs(ts[hi] - t) ? lo : hi;
+      Charts.render(canvas, idx);
+      var cfg = canvas._cfg, html = '<div><b>' + Fmt.date(cfg.dates[idx]) + '</b></div>';
+      cfg.series.forEach(function (s) {
+        html += '<div class="row"><span><i class="sw" style="background:' + Charts.css(s.color) + '"></i>' + UI.esc(s.label) +
+          '</span><b>' + (s.values[idx] == null ? '—' : (cfg.tipFmt || cfg.yFmt)(s.values[idx])) + '</b></div>';
+      });
+      if (cfg.extraTip) html += cfg.extraTip(idx);
+      tip.innerHTML = html;
+      tip.classList.remove('hidden');
+      var px = L.xOf(ts[idx]), tw = tip.offsetWidth;
+      tip.style.left = Math.max(0, px + 14 + tw > rect.width ? px - 14 - tw : px + 14) + 'px';
+      tip.style.top = (L.t + 6) + 'px';
+    };
+    canvas.addEventListener('mousemove', move);
+    canvas.addEventListener('touchstart', move, { passive: true });
+    canvas.addEventListener('touchmove', move, { passive: true });
+    canvas.addEventListener('mouseleave', leave);
+  },
+
+  render: function (canvas, hoverIdx) {
+    var cfg = canvas._cfg; if (!cfg) return;
+    var dpr = window.devicePixelRatio || 1, W = canvas.clientWidth, H = canvas.clientHeight;
+    if (!W || !H) return;
+    if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
+    var ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    var textMuted = Charts.css('--text-2'), grid = Charts.css('--grid'), surface = Charts.css('--surface');
+    ctx.font = '11px "Segoe UI", system-ui, sans-serif';
+    var all = [];
+    cfg.series.forEach(function (s) { s.values.forEach(function (v) { if (v != null && isFinite(v)) all.push(v); }); });
+    if (!cfg.dates || !cfg.dates.length || !all.length) {
+      canvas._layout = null;
+      ctx.fillStyle = textMuted; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(cfg.empty || 'Brak danych do wykresu', W / 2, H / 2);
+      return;
+    }
+    var yt = Charts.niceTicks(Math.min.apply(null, all), Math.max.apply(null, all), 5);
+    var labels = yt.ticks.map(cfg.yFmt);
+    var lw = Math.max.apply(null, labels.map(function (s) { return ctx.measureText(s).width; }));
+    var L = { l: Math.ceil(lw) + 12, r: 12, t: 8, b: 24 };
+    L.w = W - L.l - L.r; L.h = H - L.t - L.b;
+    L.ts = cfg.dates.map(Util.dateMs);
+    L.t0 = L.ts[0]; L.t1 = L.ts[L.ts.length - 1];
+    if (L.t1 === L.t0) { L.t0 -= 86400000; L.t1 += 86400000; }
+    L.xOf = function (t) { return L.l + (t - L.t0) / (L.t1 - L.t0) * L.w; };
+    L.yOf = function (v) { return L.t + (1 - (v - yt.min) / (yt.max - yt.min)) * L.h; };
+    canvas._layout = L;
+
+    ctx.strokeStyle = grid; ctx.lineWidth = 1; ctx.fillStyle = textMuted;
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    yt.ticks.forEach(function (v, i) {
+      var y = Math.round(L.yOf(v)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L.l, y); ctx.lineTo(L.l + L.w, y); ctx.stroke();
+      ctx.fillText(labels[i], L.l - 6, y);
+    });
+    var spanDays = (L.t1 - L.t0) / 86400000, nX = Math.max(2, Math.min(6, Math.floor(L.w / 90)));
+    ctx.textBaseline = 'top';
+    for (var i = 0; i <= nX; i++) {
+      var t = L.t0 + (L.t1 - L.t0) * i / nX;
+      ctx.textAlign = i === 0 ? 'left' : (i === nX ? 'right' : 'center');
+      ctx.fillText(spanDays > 120 ? Fmt.monthYear(t) : Fmt.dayMonth(t), L.xOf(t), L.t + L.h + 6);
+    }
+    if (cfg.refLine != null && cfg.refLine >= yt.min && cfg.refLine <= yt.max) {
+      ctx.strokeStyle = textMuted; ctx.setLineDash([2, 3]);
+      var ry = Math.round(L.yOf(cfg.refLine)) + 0.5;
+      ctx.beginPath(); ctx.moveTo(L.l, ry); ctx.lineTo(L.l + L.w, ry); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    cfg.series.forEach(function (s) {
+      ctx.strokeStyle = Charts.css(s.color); ctx.lineWidth = 2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      ctx.setLineDash(s.dash ? [6, 4] : []);
+      ctx.beginPath();
+      var pen = false;
+      for (var j = 0; j < s.values.length; j++) {
+        var v = s.values[j];
+        if (v == null || !isFinite(v)) { pen = false; continue; }
+        var px = L.xOf(L.ts[j]), py = L.yOf(v);
+        if (!pen) { ctx.moveTo(px, py); pen = true; } else ctx.lineTo(px, py);
+      }
+      if (s.values.length === 1 && s.values[0] != null) ctx.arc(L.xOf(L.ts[0]), L.yOf(s.values[0]), 3, 0, 7);
+      ctx.stroke();
+    });
+    ctx.setLineDash([]);
+    if (hoverIdx != null) {
+      var hx = Math.round(L.xOf(L.ts[hoverIdx])) + 0.5;
+      ctx.strokeStyle = textMuted; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(hx, L.t); ctx.lineTo(hx, L.t + L.h); ctx.stroke();
+      cfg.series.forEach(function (s) {
+        var v = s.values[hoverIdx]; if (v == null || !isFinite(v)) return;
+        ctx.beginPath(); ctx.arc(hx, L.yOf(v), 4, 0, Math.PI * 2);
+        ctx.fillStyle = Charts.css(s.color); ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = surface; ctx.stroke();
+      });
+    }
+  },
+
+  legend: function (el, series) {
+    el.innerHTML = series.map(function (s) {
+      var c = Charts.css(s.color);
+      return '<span><i class="sw' + (s.dash ? ' dash' : '') + '" style="background:' + c + ';border-color:' + c + '"></i>' + UI.esc(s.label) + '</span>';
+    }).join('');
+  },
+
+  redrawAll: function () { document.querySelectorAll('canvas').forEach(function (c) { Charts.render(c, null); }); }
+};
+
+/* =============================================================================
+ * UI – stan aplikacji, renderowanie, zdarzenia
+ * ========================================================================== */
+var UI = {
+  state: null,
+  ui: { asOf: null, sort: { key: 'value', dir: -1 }, editId: null, pendingWarnKey: null },
+
+  /* ---------- stan ---------- */
+  defaultState: function () {
+    var id = Util.uid();
+    return {
+      app: Config.APP_ID, version: Config.VERSION, seq: 1,
+      portfolios: [{ id: id, name: 'Mój portfel', created: Util.todayISO(), transactions: [] }],
+      activeId: id,
+      settings: { theme: 'auto', benchmark: 'ETFBW20TR.WA', dataUrl: '' }
+    };
+  },
+  /** Wersja 1 obsługiwała tylko GPW z tickerami Stooq ('pkn', 'wig20'). */
+  migrateTicker: function (t) {
+    var s = String(t || '').trim().toLowerCase();
+    if (Config.STOOQ_INDEX[s]) return Config.STOOQ_INDEX[s];
+    return /^[a-z0-9]+$/.test(s) ? s.toUpperCase() + '.WA' : Util.normSym(t);
+  },
+  normalizeState: function (s) {
+    if (!s || typeof s !== 'object' || !Array.isArray(s.portfolios)) throw new Error('Nieprawidłowy format pliku (brak listy portfeli).');
+    var legacy = !(s.version >= 2);
+    var st = s.settings || {};
+    var bench = st.benchmark;
+    if (legacy) bench = bench === 'wig' ? 'WIG.WA' : 'ETFBW20TR.WA';
+    var out = { app: Config.APP_ID, version: Config.VERSION, seq: +s.seq || 1, portfolios: [], activeId: s.activeId,
+      settings: { theme: st.theme || 'auto', benchmark: bench ? Util.normSym(bench) : 'ETFBW20TR.WA', dataUrl: st.dataUrl || '' } };
+    s.portfolios.forEach(function (p) {
+      if (!p || typeof p !== 'object') return;
+      var np = { id: String(p.id || Util.uid()), name: String(p.name || 'Portfel'), created: p.created || Util.todayISO(), transactions: [] };
+      (p.transactions || []).forEach(function (t) {
+        var sym = legacy ? UI.migrateTicker(t.ticker) : Util.normSym(t.ticker);
+        var tx = { id: String(t.id || Util.uid()), seq: +t.seq || out.seq++, ticker: sym, type: t.type === 'SELL' ? 'SELL' : 'BUY',
+          date: String(t.date), qty: +t.qty, price: +t.price, fee: +t.fee || 0,
+          currency: t.currency || (legacy ? 'PLN' : (Util.guessCurrency(sym) || 'PLN')) };
+        if (+t.fx > 0) tx.fx = +t.fx;
+        if (!Util.isSym(tx.ticker) || !Util.isISODate(tx.date) || !(tx.qty > 0) || !(tx.price > 0)) throw new Error('Nieprawidłowa transakcja w portfelu „' + np.name + '”.');
+        out.seq = Math.max(out.seq, tx.seq + 1);
+        np.transactions.push(tx);
+      });
+      out.portfolios.push(np);
+    });
+    if (!out.portfolios.length) out.portfolios.push(UI.defaultState().portfolios[0]);
+    if (!out.portfolios.some(function (p) { return p.id === out.activeId; })) out.activeId = out.portfolios[0].id;
+    return out;
+  },
+  save: function () {
+    if (!Storage.set(Config.STORAGE_STATE, UI.state) && Storage.available) UI.toast('Nie udało się zapisać w localStorage – użyj eksportu JSON.');
+  },
+  active: function () {
+    var s = UI.state;
+    return s.portfolios.filter(function (p) { return p.id === s.activeId; })[0] || s.portfolios[0];
+  },
+  asOf: function () { return UI.ui.asOf || Util.todayISO(); },
+  allTransactions: function () { return UI.state.portfolios.reduce(function (a, p) { return a.concat(p.transactions); }, []); },
+  earliestDate: function (txs) { return txs.reduce(function (m, t) { return !m || t.date < m ? t.date : m; }, null); },
+  cacheCutoff: function () {
+    var e = UI.earliestDate(UI.allTransactions());
+    return Util.addDays(e || Util.todayISO(), -Config.CACHE_MARGIN_DAYS);
+  },
+  /** Kontekst obliczeń dla silnika. */
+  ctx: function () {
+    var prices = {}, ccy = {}, fx = {};
+    Object.keys(DataSource.quotes).forEach(function (k) { if (DataSource.quotes[k].rows) prices[k] = DataSource.quotes[k].rows; });
+    Object.keys(DataSource.fx).forEach(function (k) { if (DataSource.fx[k].rows) fx[k] = DataSource.fx[k].rows; });
+    var add = function (s) { var c = DataSource.currencyOf(s); if (c) ccy[s] = c; };
+    Object.keys(prices).forEach(add);
+    UI.allTransactions().forEach(function (t) { if (!ccy[t.ticker]) ccy[t.ticker] = t.currency || DataSource.currencyOf(t.ticker) || 'PLN'; });
+    add(UI.state.settings.benchmark);
+    return { prices: prices, ccy: ccy, fx: fx };
+  },
+  neededTickers: function () {
+    var set = {};
+    UI.active().transactions.forEach(function (t) { set[t.ticker] = true; });
+    var list = Object.keys(set).sort();
+    if (list.indexOf(UI.state.settings.benchmark) < 0) list.push(UI.state.settings.benchmark);
+    return list;
+  },
+
+  /* ---------- pomocnicze ---------- */
+  $: function (id) { return document.getElementById(id); },
+  esc: function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); },
+  toast: function (msg) {
+    var t = UI.$('toast'); t.textContent = msg; t.classList.add('show');
+    clearTimeout(UI._toastT); UI._toastT = setTimeout(function () { t.classList.remove('show'); }, 4000);
+  },
+  download: function (filename, content, mime) {
+    var url = URL.createObjectURL(new Blob([content], { type: mime }));
+    var a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 2000);
+  },
+  readFile: function (file) {
+    return new Promise(function (res, rej) {
+      var r = new FileReader();
+      r.onload = function () { res(String(r.result)); };
+      r.onerror = function () { rej(r.error); };
+      r.readAsText(file, 'utf-8');
+    });
+  },
+
+  /* ---------- init ---------- */
+  init: function () {
+    Storage.init();
+    var saved = Storage.get(Config.STORAGE_STATE);
+    try { UI.state = saved ? UI.normalizeState(saved) : UI.defaultState(); } catch (e) { UI.state = UI.defaultState(); }
+    DataSource.dataUrl = UI.state.settings.dataUrl || Config.DEFAULT_DATA_URL;
+    DataSource.loadCache();
+    UI.applyTheme();
+    UI.fillBenchmarks();
+    UI.fillDatalist();
+    UI.$('fDate').max = Util.todayISO();
+    UI.$('fDate').value = Util.todayISO();
+    UI.$('asOf').max = Util.todayISO();
+    UI.$('dataUrl').value = DataSource.dataUrl;
+    UI.$('storageInfo').textContent = Storage.available
+      ? 'Portfele i notowania zapisywane lokalnie w przeglądarce.'
+      : 'Zapis w przeglądarce niedostępny – dane znikną po zamknięciu karty. Używaj eksportu JSON.';
+    UI.bindEvents();
+    UI.renderAll();
+    var age = DataSource.manifestAt ? Date.now() - new Date(DataSource.manifestAt).getTime() : Infinity;
+    UI.sync(age < Config.MANIFEST_MAX_AGE_MS);
+    setInterval(function () { UI.sync(false); }, Config.SYNC_INTERVAL_MS);
+    if (location.hash === '#selftest') UI.showSelfTests();
+  },
+
+  fillBenchmarks: function () {
+    var cur = UI.state.settings.benchmark, list = Config.BENCHMARKS.slice();
+    if (!list.some(function (b) { return b[0] === cur; })) list.push([cur, cur]);
+    UI.$('benchmark').innerHTML = list.map(function (b) { return '<option value="' + UI.esc(b[0]) + '">' + UI.esc(b[1]) + '</option>'; }).join('');
+    UI.$('benchmark').value = cur;
+  },
+  fillDatalist: function () {
+    var keys = Object.keys(DataSource.symbols), html;
+    if (keys.length) {
+      html = keys.sort().map(function (k) {
+        var s = DataSource.symbols[k];
+        return '<option value="' + UI.esc(k) + '">' + UI.esc((s.n || '') + ' · ' + (s.m || '') + ' · ' + (s.c || '')) + '</option>';
+      }).join('');
+    } else {
+      html = Config.FALLBACK_SYMBOLS.map(function (t) { return '<option value="' + t[0] + '">' + UI.esc(t[1]) + '</option>'; }).join('');
+    }
+    if (html !== UI._dlHtml) { UI.$('tickerList').innerHTML = html; UI._dlHtml = html; }
+  },
+
+  bindEvents: function () {
+    var $ = UI.$;
+    $('btnNewPortfolio').onclick = function () {
+      var name = prompt('Nazwa nowego portfela:', 'Portfel ' + (UI.state.portfolios.length + 1));
+      if (name == null) return;
+      var p = { id: Util.uid(), name: name.trim() || 'Portfel', created: Util.todayISO(), transactions: [] };
+      UI.state.portfolios.push(p); UI.state.activeId = p.id; UI.cancelEdit(); UI.save(); UI.renderAll();
+    };
+    $('btnRenamePortfolio').onclick = function () {
+      var p = UI.active(), name = prompt('Nowa nazwa portfela:', p.name);
+      if (name == null || !name.trim()) return;
+      p.name = name.trim(); UI.save(); UI.renderAll();
+    };
+    $('btnDeletePortfolio').onclick = function () {
+      var p = UI.active();
+      if (!confirm('Usunąć portfel „' + p.name + '” wraz z ' + p.transactions.length + ' transakcjami?')) return;
+      UI.state.portfolios = UI.state.portfolios.filter(function (x) { return x.id !== p.id; });
+      if (!UI.state.portfolios.length) UI.state.portfolios.push(UI.defaultState().portfolios[0]);
+      UI.state.activeId = UI.state.portfolios[0].id; UI.cancelEdit(); UI.save(); UI.renderAll();
+    };
+    $('portfolioList').onclick = function (e) {
+      var b = e.target.closest('button[data-id]'); if (!b) return;
+      UI.state.activeId = b.dataset.id; UI.cancelEdit(); UI.save(); UI.renderAll(); UI.sync(true);
+    };
+
+    $('asOf').onchange = function () {
+      var v = this.value;
+      if (v && v > Util.todayISO()) { v = Util.todayISO(); this.value = v; }
+      UI.ui.asOf = v || null; UI.renderAll();
+    };
+    $('btnAsOfToday').onclick = function () { UI.ui.asOf = null; $('asOf').value = ''; UI.renderAll(); };
+    $('benchmark').onchange = function () { UI.state.settings.benchmark = this.value; UI.save(); UI.renderAll(); UI.sync(true); };
+    $('btnTheme').onclick = function () {
+      var order = ['auto', 'light', 'dark'], s = UI.state.settings;
+      s.theme = order[(order.indexOf(s.theme) + 1) % 3]; UI.save(); UI.applyTheme(); UI.renderCharts();
+    };
+    if (window.matchMedia) {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      var h = function () { if (UI.state.settings.theme === 'auto') UI.renderCharts(); };
+      if (mq.addEventListener) mq.addEventListener('change', h); else if (mq.addListener) mq.addListener(h);
+    }
+
+    $('txForm').onsubmit = function (e) { e.preventDefault(); UI.submitTx(); };
+    $('btnTxCancel').onclick = function () { UI.cancelEdit(); };
+    ['fTicker', 'fDate', 'fPrice', 'fQty', 'fType', 'fFx'].forEach(function (id) {
+      $(id).addEventListener('input', function () { UI.ui.pendingWarnKey = null; UI.updateTxHint(); });
+    });
+    $('fTicker').addEventListener('change', function () {
+      var s = DataSource.resolveSymbol(this.value);
+      if (s && s !== this.value) this.value = s;
+      UI.updateTxHint();
+      if (s && Util.isSym(s)) UI.ensureData([s]);
+    });
+
+    $('posTable').onclick = function (e) {
+      var th = e.target.closest('th[data-key]'); if (!th) return;
+      var k = th.dataset.key, s = UI.ui.sort;
+      if (s.key === k) s.dir = -s.dir; else { s.key = k; s.dir = k === 'ticker' || k === 'currency' ? 1 : -1; }
+      UI.renderPositions();
+    };
+    $('txTable').onclick = function (e) {
+      var b = e.target.closest('button[data-act]'); if (!b) return;
+      if (b.dataset.act === 'edit') UI.startEdit(b.dataset.id); else UI.deleteTx(b.dataset.id);
+    };
+
+    $('btnRefresh').onclick = function () { UI.sync(false, true); };
+    $('btnDiag').onclick = UI.runDiagnostics;
+    $('btnPickCsv').onclick = function () { $('fileCsv').click(); };
+    $('fileCsv').onchange = function () { UI.importCsvFiles(this.files); this.value = ''; };
+    $('manualPanel').addEventListener('change', function (e) {
+      if (e.target.matches('input[type=file]')) { UI.importCsvFiles(e.target.files, e.target.dataset.ticker); e.target.value = ''; }
+    });
+    $('btnSaveUrl').onclick = function () {
+      var v = $('dataUrl').value.trim();
+      if (v && !/\/$/.test(v)) v += '/';
+      if (v && !/^https?:\/\//.test(v)) { alert('Adres musi zaczynać się od https://'); return; }
+      UI.state.settings.dataUrl = v === Config.DEFAULT_DATA_URL ? '' : v;
+      DataSource.dataUrl = v || Config.DEFAULT_DATA_URL; $('dataUrl').value = DataSource.dataUrl;
+      DataSource.manifest = null; DataSource.symbols = {}; Storage.remove(Config.STORAGE_MANIFEST);
+      UI.save(); UI.sync(false, true);
+    };
+    $('btnResetUrl').onclick = function () { $('dataUrl').value = Config.DEFAULT_DATA_URL; $('btnSaveUrl').click(); };
+    $('btnExportCsv').onclick = UI.exportPositionsCsv;
+    $('btnExportJson').onclick = UI.exportJson;
+    $('btnImportJson').onclick = function () { $('fileJson').click(); };
+    $('fileJson').onchange = function () { if (this.files[0]) UI.importJsonFile(this.files[0]); this.value = ''; };
+
+    var depth = 0;
+    window.addEventListener('dragenter', function (e) { e.preventDefault(); depth++; document.body.classList.add('dragging'); });
+    window.addEventListener('dragleave', function () { if (--depth <= 0) { depth = 0; document.body.classList.remove('dragging'); } });
+    window.addEventListener('dragover', function (e) { e.preventDefault(); });
+    window.addEventListener('drop', function (e) {
+      e.preventDefault(); depth = 0; document.body.classList.remove('dragging');
+      var files = Array.prototype.slice.call(e.dataTransfer.files || []);
+      var json = files.filter(function (f) { return /\.json$/i.test(f.name); });
+      var csv = files.filter(function (f) { return !/\.json$/i.test(f.name); });
+      if (json.length) UI.importJsonFile(json[0]);
+      if (csv.length) UI.importCsvFiles(csv);
+    });
+    var rt;
+    window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(Charts.redrawAll, 100); });
+  },
+
+  applyTheme: function () {
+    var t = UI.state.settings.theme;
+    if (t === 'auto') document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme', t);
+    UI.$('btnTheme').textContent = 'Motyw: ' + ({ auto: 'auto', light: 'jasny', dark: 'ciemny' })[t];
+  },
+
+  /* ---------- synchronizacja z lustrem ---------- */
+  /** skipManifest: użyj manifestu z cache (świeży); verbose: komunikat po zakończeniu. */
+  sync: function (skipManifest, verbose) {
+    if (DataSource.syncing) return Promise.resolve();
+    DataSource.syncing = true; UI.renderSyncStatus();
+    var p = (skipManifest && DataSource.manifest) ? Promise.resolve() : DataSource.loadManifest().catch(function (e) { DataSource.mirrorError = e.message; });
+    return p.then(function () {
+      UI.fillDatalist();
+      return UI.ensureData(null, true);
+    }).then(function (changed) {
+      DataSource.lastSync = new Date().toISOString();
+      if (verbose) UI.toast(DataSource.mirrorError ? 'Serwer danych niedostępny: ' + DataSource.mirrorError + '. Używam danych zapisanych lokalnie.' : (changed ? 'Pobrano nowe dane.' : 'Dane są aktualne.'));
+    }).finally(function () { DataSource.syncing = false; UI.renderSyncStatus(); UI.renderStatus(); });
+  },
+  /** Dociąga notowania wskazanych symboli (domyślnie: wszystkie z portfeli + benchmark) i potrzebne waluty. */
+  ensureData: function (symbols, quiet) {
+    var all = UI.allTransactions();
+    var syms = symbols || (function () {
+      var set = {}; all.forEach(function (t) { set[t.ticker] = true; }); set[UI.state.settings.benchmark] = true; return Object.keys(set);
+    })();
+    var firstBySym = {};
+    all.forEach(function (t) { if (!firstBySym[t.ticker] || t.date < firstBySym[t.ticker]) firstBySym[t.ticker] = t.date; });
+    var earliest = UI.earliestDate(UI.active().transactions);
+    var jobs = syms.map(function (s) { return DataSource.ensureSymbol(s, firstBySym[s] || earliest); });
+    return Promise.all(jobs).then(function (r1) {
+      var codes = {}, ccyFrom = {};
+      syms.concat(all.map(function (t) { return t.ticker; })).forEach(function (s) {
+        var c = Util.ccyInfo(DataSource.currencyOf(s)).code;
+        if (c && c !== 'PLN') { codes[c] = true; var f = firstBySym[s] || earliest; if (f && (!ccyFrom[c] || f < ccyFrom[c])) ccyFrom[c] = f; }
+      });
+      all.forEach(function (t) { var c = Util.ccyInfo(t.currency).code; if (c !== 'PLN') { codes[c] = true; if (!ccyFrom[c] || t.date < ccyFrom[c]) ccyFrom[c] = t.date; } });
+      return Promise.all(Object.keys(codes).map(function (c) { return DataSource.ensureFx(c, ccyFrom[c] ? Util.addDays(ccyFrom[c], -10) : null); }))
+        .then(function (r2) { return r1.concat(r2).some(Boolean); });
+    }).then(function (changed) {
+      if (changed) { DataSource.saveCache(UI.cacheCutoff()); }
+      UI.renderAll();
+      return changed;
+    });
+  },
+
+  /* ---------- renderowanie ---------- */
+  renderAll: function () {
+    UI.renderPortfolioList();
+    UI.compute();
+    UI.renderKpis();
+    UI.renderStatus();
+    UI.renderPositions();
+    UI.renderTxTable();
+    UI.renderCharts();
+    UI.updateTxHint();
+    UI.renderSyncStatus();
+  },
+
+  compute: function () {
+    var p = UI.active(), asOf = UI.asOf(), ctx = UI.ctx();
+    try {
+      UI.calc = PortfolioEngine.valuation(p.transactions, ctx, asOf);
+      UI.series = PortfolioEngine.timeSeries(p.transactions, ctx, UI.state.settings.benchmark, asOf);
+      UI.calcError = null;
+    } catch (e) { UI.calc = { positions: [], totals: null }; UI.series = null; UI.calcError = e.message; }
+  },
+
+  renderSyncStatus: function () {
+    var el = UI.$('syncStatus'), m = DataSource.manifest, txt, cls;
+    if (DataSource.syncing) { cls = 'busy'; txt = 'Sprawdzanie nowych danych…'; }
+    else if (DataSource.mirrorError) {
+      cls = 'err';
+      txt = 'Serwer danych niedostępny (' + UI.esc(DataSource.mirrorError) + '). ' + (m ? 'Używam danych z ' + Fmt.dateTime(m.generated) + '.' : 'Wczytaj CSV ręcznie.');
+    } else if (m) {
+      cls = 'ok';
+      txt = 'Serwer danych: ' + (m.symbols || []).length + ' walorów, aktualizacja ' + Fmt.dateTime(m.generated) +
+        (DataSource.lastSync ? '<br><span class="muted">sprawdzono ' + Fmt.dateTime(DataSource.lastSync) + ', kolejne sprawdzenie za godzinę</span>' : '');
+    } else { cls = ''; txt = 'Łączenie z serwerem danych…'; }
+    el.className = 'sync ' + cls;
+    el.innerHTML = '<span class="dot"></span><span>' + txt + '</span>';
+    UI.$('btnRefresh').disabled = DataSource.syncing;
+  },
+
+  renderPortfolioList: function () {
+    var s = UI.state;
+    UI.$('portfolioList').innerHTML = s.portfolios.map(function (p) {
+      return '<li><button data-id="' + UI.esc(p.id) + '" class="' + (p.id === s.activeId ? 'active' : '') + '" title="' + UI.esc(p.name) + '">' +
+        UI.esc(p.name) + ' <span class="muted small-text">(' + p.transactions.length + ')</span></button></li>';
+    }).join('');
+    UI.$('portfolioName').textContent = '– ' + UI.active().name;
+    UI.$('asOfInfo').textContent = UI.ui.asOf ? 'Widok historyczny na ' + Fmt.date(UI.ui.asOf) : 'Stan bieżący (ostatnie dostępne zamknięcia)';
+  },
+
+  renderKpis: function () {
+    var T = UI.calc.totals, el = UI.$('kpis');
+    if (UI.calcError) { el.innerHTML = '<div class="notice err">' + UI.esc(UI.calcError) + '</div>'; return; }
+    if (!T || !UI.active().transactions.some(function (t) { return t.date <= UI.asOf(); })) {
+      el.innerHTML = '<div class="muted">Brak transakcji do dnia ' + Fmt.date(UI.asOf()) + '. Dodaj pierwszą transakcję poniżej.</div>'; return;
+    }
+    var dd = UI.series ? UI.series.maxDrawdown : null;
+    var ddSub = dd && dd.troughIdx >= 0 ? Fmt.date(UI.series.dates[dd.peakIdx]) + ' → ' + Fmt.date(UI.series.dates[dd.troughIdx]) : 'na indeksie TWR';
+    var k = function (label, value, sub, cls, title) {
+      return '<div class="kpi" title="' + UI.esc(title || '') + '"><div class="label">' + label + '</div><div class="value ' + (cls || '') + '">' + value + '</div><div class="sub">' + (sub || '&nbsp;') + '</div></div>';
+    };
+    var lastPx = UI.calc.positions.filter(function (p) { return !p.closed && p.priceFromQuotes; })
+      .reduce(function (m, p) { return !m || p.priceDate > m ? p.priceDate : m; }, null);
+    var sub = lastPx ? 'kursy zamknięcia z ' + Fmt.date(lastPx) : 'na ' + Fmt.date(UI.asOf());
+    if (T.missingQuotes.length) sub = '<span class="warn-icon">⚠</span> brak notowań: ' + UI.esc(T.missingQuotes.join(', '));
+    if (T.missingFx.length) sub = '<span class="warn-icon">⚠</span> brak kursów walut: ' + UI.esc(T.missingFx.join(', '));
+    el.innerHTML =
+      k('Wartość portfela', Fmt.pln(T.value), sub, '', 'Wartość otwartych pozycji wg ostatniego dostępnego zamknięcia, przeliczona kursem NBP') +
+      k('Wpłacony kapitał', Fmt.pln(T.buyTotal), 'netto: ' + Fmt.pln(T.netInvested), '', 'Suma kupna z prowizjami w PLN; netto = kupna − przychody ze sprzedaży') +
+      k('Zysk całkowity', Fmt.plnSigned(T.totalPL), 'zrealiz. ' + Fmt.plnSigned(T.realized) + ' · niezrealiz. ' + Fmt.plnSigned(T.unrealized), Fmt.cls(T.totalPL), 'W PLN, łącznie z efektem kursowym') +
+      k('Stopa zwrotu prosta', Fmt.pct(T.simpleReturn), 'zysk / wpłacony kapitał', Fmt.cls(T.simpleReturn)) +
+      k('XIRR (roczna)', Fmt.pct(T.xirr), 'uwzględnia daty przepływów', Fmt.cls(T.xirr), 'Wewnętrzna stopa zwrotu dla nieregularnych przepływów, rok = 365 dni') +
+      k('Maks. obsunięcie', dd ? Fmt.pct(dd.value) : '—', ddSub, dd && dd.value < -0.00005 ? 'loss' : '', 'Na indeksie stopy zwrotu ważonej czasem (TWR) – wpłaty i wypłaty go nie zniekształcają') +
+      k('Prowizje', Fmt.pln(T.fees), '', '');
+  },
+
+  sourceLabel: function (q) {
+    if (!q || !q.rows) return { cls: 'none', text: q && q.error ? 'brak danych (' + q.error + ')' : 'brak danych' };
+    if (q.session === 'mirror') return { cls: 'mirror', text: 'z serwera' };
+    if (q.session === 'file') return { cls: 'file', text: 'z pliku' };
+    return { cls: 'cache', text: 'z pamięci (' + (q.origin === 'file' ? 'plik' : 'serwer') + ')' };
+  },
+
+  renderStatus: function () {
+    var tickers = UI.neededTickers(), bench = UI.state.settings.benchmark, missing = [];
+    var html = tickers.map(function (t) {
+      var q = DataSource.quotes[t], lab = UI.sourceLabel(q);
+      if (!q || !q.rows) missing.push(t);
+      var last = q && q.rows ? q.rows[q.rows.length - 1][0] : null;
+      var title = (DataSource.nameOf(t) ? DataSource.nameOf(t) + ' · ' : '') + (DataSource.currencyOf(t) || '') + (q && q.fetchedAt ? ' · wczytano ' + Fmt.dateTime(q.fetchedAt) : '');
+      return '<span class="status-chip ' + lab.cls + '" title="' + UI.esc(title) + '"><span class="dot"></span><b>' + UI.esc(t) + '</b>' +
+        (t === bench ? '<span class="muted">(benchmark)</span>' : '') + '<span>' + UI.esc(lab.text) + '</span>' +
+        (last ? '<span class="muted">ost. ' + Fmt.date(last) + '</span>' : '') + '</span>';
+    });
+    var fxCodes = {};
+    UI.active().transactions.forEach(function (t) { var c = Util.ccyInfo(DataSource.currencyOf(t.ticker) || t.currency).code; if (c !== 'PLN') fxCodes[c] = true; });
+    Object.keys(fxCodes).sort().forEach(function (c) {
+      var f = DataSource.fx[c], ok = f && f.rows && f.rows.length;
+      html.push('<span class="status-chip ' + (ok ? (f.session === 'cache' ? 'cache' : 'mirror') : 'none') + '"><span class="dot"></span><b>' + c + '/PLN</b><span>' +
+        (ok ? ({ mirror: 'z serwera', nbp: 'z NBP', cache: 'z pamięci', file: 'z pliku' }[f.session] || '') : 'brak kursu') + '</span>' +
+        (ok ? '<span class="muted">ost. ' + Fmt.date(f.rows[f.rows.length - 1][0]) + '</span>' : '') + '</span>');
+    });
+    UI.$('statusList').innerHTML = html.join('');
+    UI.renderManualPanel(missing);
+  },
+
+  /** Tryb awaryjny: walory bez notowań – link do Stooq (gdy istnieje) + wybór pliku. */
+  renderManualPanel: function (missing) {
+    var el = UI.$('manualPanel');
+    if (!missing.length || DataSource.syncing) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+    el.classList.remove('hidden');
+    var reason = DataSource.mirrorError ? 'Serwer danych jest niedostępny (' + UI.esc(DataSource.mirrorError) + ').'
+      : 'Tych walorów nie ma na serwerze danych (można je dopisać do pliku config/universe.csv w repozytorium).';
+    el.innerHTML = '<b>Brak notowań.</b> ' + reason + ' Możesz wczytać plik CSV z kolumnami Date/Data i Close/Zamkniecie – np. ze Stooq – albo przeciągnąć kilka plików naraz na stronę.<ul>' +
+      missing.map(function (t) {
+        var st = DataSource.stooqSymbol(t), q = DataSource.quotes[t];
+        return '<li><b>' + UI.esc(t) + '</b>' + (DataSource.nameOf(t) ? ' <span class="muted">' + UI.esc(DataSource.nameOf(t)) + '</span>' : '') + ': ' +
+          (st ? '<a href="' + UI.esc(Config.stooqCsvUrl(st)) + '" target="_blank" rel="noopener">pobierz CSV ze Stooq</a> ' : '<span class="muted">brak w Stooq</span> ') +
+          '<input type="file" accept=".csv,.txt,text/csv" data-ticker="' + UI.esc(t) + '" aria-label="Plik CSV dla ' + UI.esc(t) + '">' +
+          (q && q.error ? ' <span class="small-text muted">(' + UI.esc(q.error) + ')</span>' : '') + '</li>';
+      }).join('') + '</ul>';
+  },
+
+  positionColumns: [
+    { key: 'ticker', label: 'Walor', fmt: function (p) {
+      return '<b>' + UI.esc(p.ticker) + '</b>' + (p.closed ? ' <span class="tag">zamknięta</span>' : '') + '<div class="name">' + UI.esc(DataSource.nameOf(p.ticker)) + '</div>'; } },
+    { key: 'qty', label: 'Ilość', fmt: function (p) { return Fmt.num(p.qty); } },
+    { key: 'avgPrice', label: 'Śr. cena zakupu*', fmt: function (p) { return Fmt.money(p.avgPrice, p.currency); } },
+    { key: 'price', label: 'Kurs', fmt: function (p) {
+      return Fmt.money(p.price, p.currency) + (p.priceFromQuotes ? '' : ' <span class="warn-icon" title="Brak notowań – użyto ceny ostatniej transakcji">⚠</span>') +
+        '<div class="muted small-text">' + Fmt.date(p.priceDate) + '</div>'; } },
+    { key: 'cost', label: 'Koszt (PLN)', fmt: function (p) { return Fmt.pln(p.cost); } },
+    { key: 'value', label: 'Wartość (PLN)', fmt: function (p) {
+      return Fmt.pln(p.value) + (Util.ccyInfo(p.currency).code !== 'PLN' && !p.closed ? '<div class="muted small-text">kurs ' + Util.ccyInfo(p.currency).code + ' ' + Fmt.price(p.rate == null ? null : p.rate / Util.ccyInfo(p.currency).factor) + '</div>' : ''); } },
+    { key: 'unrealized', label: 'Zysk/strata', fmt: function (p) { return p.closed ? '—' : '<span class="' + Fmt.cls(p.unrealized) + '">' + Fmt.plnSigned(p.unrealized) + '</span>'; } },
+    { key: 'unrealizedPct', label: 'Zysk/strata %', fmt: function (p) { return p.closed ? '—' : '<span class="' + Fmt.cls(p.unrealizedPct) + '">' + Fmt.pct(p.unrealizedPct) + '</span>'; } },
+    { key: 'realized', label: 'Zrealizowany (FIFO)', fmt: function (p) { return '<span class="' + Fmt.cls(p.realized) + '">' + Fmt.plnSigned(p.realized) + '</span>'; } },
+    { key: 'weight', label: 'Udział', fmt: function (p) { return p.closed ? '—' : Fmt.pctPlain(p.weight); } }
+  ],
+
+  sortedPositions: function () {
+    var s = UI.ui.sort;
+    return UI.calc.positions.slice().sort(function (a, b) {
+      if (a.closed !== b.closed) return a.closed ? 1 : -1;
+      var x = a[s.key], y = b[s.key];
+      if (x == null || (typeof x === 'number' && isNaN(x))) return 1;
+      if (y == null || (typeof y === 'number' && isNaN(y))) return -1;
+      return (typeof x === 'string' ? x.localeCompare(y) : x - y) * s.dir;
+    });
+  },
+
+  renderPositions: function () {
+    var cols = UI.positionColumns, s = UI.ui.sort, list = UI.sortedPositions(), T = UI.calc.totals;
+    var head = '<thead><tr>' + cols.map(function (c) {
+      return '<th class="sortable" data-key="' + c.key + '" aria-sort="' + (s.key === c.key ? (s.dir > 0 ? 'ascending' : 'descending') : 'none') + '">' + c.label +
+        (s.key === c.key ? '<span class="arrow">' + (s.dir > 0 ? '▲' : '▼') + '</span>' : '') + '</th>';
+    }).join('') + '</tr></thead>';
+    if (!list.length) { UI.$('posTable').innerHTML = head + '<tbody><tr><td colspan="' + cols.length + '" class="muted left">Brak pozycji.</td></tr></tbody>'; return; }
+    var body = '<tbody>' + list.map(function (p) {
+      return '<tr class="' + (p.closed ? 'closed' : '') + '">' + cols.map(function (c) { return '<td>' + c.fmt(p) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody>';
+    var foot = '<tfoot><tr><td>Razem</td><td></td><td></td><td></td><td>' + Fmt.pln(T.cost) + '</td><td>' + Fmt.pln(T.value) + '</td>' +
+      '<td class="' + Fmt.cls(T.unrealized) + '">' + Fmt.plnSigned(T.unrealized) + '</td><td class="' + Fmt.cls(T.unrealized) + '">' + Fmt.pct(T.cost > 0 ? T.unrealized / T.cost : null) + '</td>' +
+      '<td class="' + Fmt.cls(T.realized) + '">' + Fmt.plnSigned(T.realized) + '</td><td></td></tr>' +
+      '<tr><td colspan="' + cols.length + '" class="left muted small-text" style="font-weight:normal">* średnia cena otwartych partii (FIFO) z prowizją kupna, w walucie notowań. Koszt i wartość w PLN po kursach NBP z dnia transakcji / wyceny.</td></tr></tfoot>';
+    UI.$('posTable').innerHTML = head + body + foot;
+  },
+
+  renderTxTable: function () {
+    var p = UI.active(), asOf = UI.asOf(), ctx = UI.ctx();
+    var txs = PortfolioEngine.sortTx(p.transactions).reverse();
+    var head = '<thead><tr><th class="left">Data</th><th class="left">Walor</th><th class="left">Typ</th><th>Ilość</th><th>Cena</th><th>Prowizja</th><th>Wartość</th><th>Kurs PLN</th><th></th></tr></thead>';
+    if (!txs.length) { UI.$('txTable').innerHTML = head + '<tbody><tr><td colspan="9" class="muted left">Brak transakcji.</td></tr></tbody>'; return; }
+    UI.$('txTable').innerHTML = head + '<tbody>' + txs.map(function (t) {
+      var info = Util.ccyInfo(t.currency), rate = PortfolioEngine.txRate(t, ctx);
+      var rateTxt = info.code === 'PLN' ? '—' : (rate == null ? '<span class="warn-icon">brak</span>' : Fmt.price(rate / info.factor) + (t.fx > 0 ? ' <span class="tag" title="Kurs wpisany ręcznie">ręczny</span>' : ''));
+      return '<tr class="' + (t.date > asOf ? 'future' : '') + '"><td>' + Fmt.date(t.date) + '</td><td class="left"><b>' + UI.esc(t.ticker) + '</b></td>' +
+        '<td class="left"><span class="tag ' + (t.type === 'BUY' ? 'buy">kupno' : 'sell">sprzedaż') + '</span></td>' +
+        '<td>' + Fmt.num(t.qty) + '</td><td>' + Fmt.money(t.price, t.currency) + '</td><td>' + Fmt.money(t.fee, t.currency) + '</td>' +
+        '<td>' + Fmt.money(t.qty * t.price, t.currency) + '</td><td>' + rateTxt + '</td>' +
+        '<td><button class="link small" data-act="edit" data-id="' + UI.esc(t.id) + '">Edytuj</button>' +
+        '<button class="link small danger" data-act="del" data-id="' + UI.esc(t.id) + '">Usuń</button></td></tr>';
+    }).join('') + '</tbody>';
+  },
+
+  renderCharts: function () {
+    var S = UI.series, bench = UI.state.settings.benchmark;
+    var bl = (Config.BENCHMARKS.filter(function (b) { return b[0] === bench; })[0] || [bench, bench])[1];
+    var sv = [
+      { label: 'Wartość portfela', values: S ? S.value : [], color: '--s1' },
+      { label: 'Zainwestowany kapitał netto', values: S ? S.invested : [], color: '--s2', dash: true }
+    ];
+    Charts.legend(UI.$('legendValue'), sv);
+    Charts.draw(UI.$('chartValue'), {
+      dates: S ? S.dates : [], series: sv, yFmt: function (v) { return Math.abs(v) >= 10000 ? Fmt.compact(v) : Fmt.num(Math.round(v)); },
+      tipFmt: Fmt.pln, empty: 'Dodaj transakcje, aby zobaczyć wykres',
+      extraTip: function (i) { var d = S.value[i] - S.invested[i]; return '<div class="row"><span>Zysk/strata</span><b class="' + Fmt.cls(d) + '">' + Fmt.plnSigned(d) + '</b></div>'; }
+    });
+    var hasBench = S && S.bench.some(function (v) { return v != null; });
+    var sr = [
+      { label: 'Portfel (TWR)', values: S ? S.twr : [], color: '--s1' },
+      { label: bl + (hasBench ? '' : ' – brak danych'), values: S ? S.bench : [], color: '--s2', dash: true }
+    ];
+    Charts.legend(UI.$('legendReturn'), sr);
+    Charts.draw(UI.$('chartReturn'), {
+      dates: S ? S.dates : [], series: sr, refLine: 100,
+      yFmt: function (v) { return Fmt.num(Math.round(v * 10) / 10); },
+      tipFmt: function (v) { return Fmt.num(Math.round(v * 100) / 100) + ' (' + Fmt.pct(v / 100 - 1) + ')'; },
+      empty: 'Dodaj transakcje, aby zobaczyć wykres'
+    });
+  },
+
+  /* ---------- transakcje ---------- */
+  readForm: function () {
+    var $ = UI.$, sym = DataSource.resolveSymbol($('fTicker').value);
+    var ccy = sym ? (DataSource.currencyOf(sym) || 'PLN') : 'PLN';
+    if (UI.ui.editId) {
+      var t = UI.active().transactions.filter(function (x) { return x.id === UI.ui.editId; })[0];
+      if (t && t.ticker === sym && t.currency) ccy = t.currency;
+    }
+    var fx = DataSource.parseNumber($('fFx').value);
+    return {
+      ticker: sym, type: $('fType').value, date: $('fDate').value, currency: ccy,
+      qty: DataSource.parseNumber($('fQty').value), price: DataSource.parseNumber($('fPrice').value),
+      fee: $('fFee').value === '' ? 0 : DataSource.parseNumber($('fFee').value),
+      fx: Util.ccyInfo(ccy).code !== 'PLN' && fx > 0 ? fx : undefined
+    };
+  },
+
+  validateTx: function (tx, editId) {
+    var errors = [], warnings = [], p = UI.active();
+    if (!tx.ticker || !Util.isSym(tx.ticker)) errors.push('Podaj poprawny symbol waloru (np. PKN.WA, AAPL, SAP.DE).');
+    if (!Util.isISODate(tx.date)) errors.push('Podaj datę transakcji.');
+    else if (tx.date > Util.todayISO()) errors.push('Data transakcji nie może być w przyszłości.');
+    if (!(tx.qty > 0)) errors.push('Liczba akcji musi być większa od zera.');
+    if (!(tx.price > 0)) errors.push('Cena musi być większa od zera.');
+    if (!(tx.fee >= 0)) errors.push('Prowizja nie może być ujemna.');
+    if (errors.length) return { errors: errors, warnings: warnings };
+    var others = p.transactions.filter(function (t) { return t.id !== editId; });
+    var seq = editId ? (p.transactions.filter(function (t) { return t.id === editId; })[0] || {}).seq : UI.state.seq;
+    var candidate = Object.assign({ id: editId || '__new', seq: seq }, tx);
+    var v = PortfolioEngine.validateSequence(others.concat([candidate]));
+    if (!v.ok) {
+      if (v.tx.id === candidate.id) {
+        errors.push('Sprzedaż większa niż posiadana ilość: na ' + Fmt.date(tx.date) + ' posiadasz ' + Fmt.num(PortfolioEngine.heldAt(others, tx.ticker, tx.date)) + ' szt. ' + tx.ticker + '.');
+      } else {
+        errors.push('Ta zmiana spowodowałaby, że późniejsza sprzedaż ' + v.tx.ticker + ' z ' + Fmt.date(v.tx.date) + ' przekroczy posiadaną ilość.');
+      }
+    }
+    if (!DataSource.symbols[tx.ticker] && !DataSource.getRows(tx.ticker) && DataSource.manifest)
+      warnings.push('Waloru ' + tx.ticker + ' nie ma na serwerze danych – wycena będzie możliwa po wczytaniu pliku CSV.');
+    var q = PortfolioEngine.priceAt(DataSource.getRows(tx.ticker), tx.date);
+    if (q && q.date === tx.date) {
+      var dev = tx.price / q.close - 1;
+      if (Math.abs(dev) > Config.PRICE_DEVIATION_WARN)
+        warnings.push('Cena ' + Fmt.money(tx.price, tx.currency) + ' odbiega o ' + Fmt.pct(dev) + ' od kursu zamknięcia z ' + Fmt.date(q.date) + ' (' + Fmt.money(q.close, tx.currency) + ').');
+    }
+    if (Util.ccyInfo(tx.currency).code !== 'PLN' && !(tx.fx > 0) && PortfolioEngine.fxRate(UI.ctx(), tx.currency, tx.date) == null)
+      warnings.push('Brak kursu NBP ' + Util.ccyInfo(tx.currency).code + ' na ten dzień – wpisz kurs ręcznie albo odśwież dane.');
+    return { errors: errors, warnings: warnings };
+  },
+
+  updateTxHint: function () {
+    var tx = UI.readForm(), el = UI.$('txHint'), info = Util.ccyInfo(tx.currency);
+    var lbl = tx.currency === 'GBp' ? '(GBp – pensy)' : '(' + (tx.currency || 'PLN') + ')';
+    UI.$('lblCcy').textContent = lbl; UI.$('lblFeeCcy').textContent = lbl;
+    UI.$('fxWrap').classList.toggle('hidden', info.code === 'PLN');
+    var parts = [];
+    if (tx.ticker && DataSource.nameOf(tx.ticker)) parts.push(DataSource.nameOf(tx.ticker) + ' (' + (DataSource.symbols[tx.ticker].m || '') + ', ' + tx.currency + ')');
+    if (tx.ticker && Util.isISODate(tx.date)) {
+      var rows = DataSource.getRows(tx.ticker);
+      if (!rows) parts.push(DataSource.symbols[tx.ticker] ? 'pobieranie notowań…' : 'brak notowań – walidacja ceny niedostępna');
+      else {
+        var q = PortfolioEngine.priceAt(rows, tx.date);
+        parts.push(q ? 'zamknięcie ' + (q.date === tx.date ? 'z tego dnia' : 'z ' + Fmt.date(q.date) + ' (brak sesji w wybranym dniu)') + ': ' + Fmt.money(q.close, tx.currency) : 'brak notowań przed tą datą');
+      }
+      if (info.code !== 'PLN') {
+        var r = PortfolioEngine.fxRate(UI.ctx(), info.code, tx.date);
+        UI.$('fFx').placeholder = r ? 'NBP ' + Fmt.price(r) : 'NBP';
+        parts.push(r ? 'kurs NBP ' + info.code + ': ' + Fmt.price(r) + ' PLN' : 'brak kursu NBP ' + info.code);
+      }
+      var held = PortfolioEngine.heldAt(UI.active().transactions, tx.ticker, tx.date, UI.ui.editId);
+      if (held > 0) parts.push('posiadane na ten dzień: ' + Fmt.num(held) + ' szt.');
+    }
+    el.textContent = parts.join(' · ');
+  },
+
+  submitTx: function () {
+    var tx = UI.readForm(), editId = UI.ui.editId, res = UI.validateTx(tx, editId), msg = UI.$('txMsg');
+    if (res.errors.length) { msg.innerHTML = '<div class="notice err">' + res.errors.map(UI.esc).join('<br>') + '</div>'; return; }
+    var warnKey = JSON.stringify(tx);
+    if (res.warnings.length && UI.ui.pendingWarnKey !== warnKey) {
+      UI.ui.pendingWarnKey = warnKey;
+      msg.innerHTML = '<div class="notice warn">' + res.warnings.map(UI.esc).join('<br>') + '<br><b>Kliknij „' + UI.esc(UI.$('btnTxSave').textContent) + '” ponownie, aby zapisać mimo to.</b></div>';
+      return;
+    }
+    if (tx.fx === undefined) delete tx.fx;
+    var p = UI.active();
+    if (editId) {
+      var t = p.transactions.filter(function (x) { return x.id === editId; })[0];
+      if (t) { delete t.fx; Object.assign(t, tx); }
+    } else {
+      p.transactions.push(Object.assign({ id: Util.uid(), seq: UI.state.seq++ }, tx));
+    }
+    UI.save();
+    var wasEdit = !!editId;
+    UI.cancelEdit();
+    UI.$('fTicker').value = tx.ticker; UI.$('fDate').value = tx.date;
+    msg.innerHTML = '<div class="notice ok">' + (wasEdit ? 'Zmieniono transakcję.' : 'Dodano transakcję.') + '</div>';
+    setTimeout(function () { if (msg.querySelector('.ok')) msg.innerHTML = ''; }, 2500);
+    UI.renderAll();
+    UI.ensureData([tx.ticker]);
+  },
+
+  startEdit: function (id) {
+    var t = UI.active().transactions.filter(function (x) { return x.id === id; })[0]; if (!t) return;
+    var $ = UI.$;
+    UI.ui.editId = id; UI.ui.pendingWarnKey = null;
+    $('fTicker').value = t.ticker; $('fType').value = t.type; $('fDate').value = t.date;
+    $('fQty').value = t.qty; $('fPrice').value = t.price; $('fFee').value = t.fee; $('fFx').value = t.fx || '';
+    $('txFormTitle').textContent = 'Edycja transakcji'; $('btnTxSave').textContent = 'Zapisz zmiany';
+    $('btnTxCancel').classList.remove('hidden'); $('txMsg').innerHTML = '';
+    $('txForm').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    UI.updateTxHint();
+  },
+
+  cancelEdit: function () {
+    var $ = UI.$;
+    UI.ui.editId = null; UI.ui.pendingWarnKey = null;
+    $('txFormTitle').textContent = 'Nowa transakcja'; $('btnTxSave').textContent = 'Dodaj';
+    $('btnTxCancel').classList.add('hidden');
+    $('fQty').value = ''; $('fPrice').value = ''; $('fFee').value = '0'; $('fFx').value = ''; $('txMsg').innerHTML = '';
+  },
+
+  deleteTx: function (id) {
+    var p = UI.active(), t = p.transactions.filter(function (x) { return x.id === id; })[0]; if (!t) return;
+    var rest = p.transactions.filter(function (x) { return x.id !== id; });
+    var v = PortfolioEngine.validateSequence(rest);
+    if (!v.ok) { alert('Nie można usunąć: późniejsza sprzedaż ' + v.tx.ticker + ' z ' + Fmt.date(v.tx.date) + ' przekroczyłaby posiadaną ilość. Najpierw usuń lub zmień tę sprzedaż.'); return; }
+    if (!confirm('Usunąć transakcję ' + (t.type === 'BUY' ? 'kupna' : 'sprzedaży') + ' ' + t.ticker + ' z ' + Fmt.date(t.date) + '?')) return;
+    p.transactions = rest;
+    if (UI.ui.editId === id) UI.cancelEdit();
+    UI.save(); UI.renderAll();
+  },
+
+  /* ---------- import CSV (tryb awaryjny) ---------- */
+  importCsvFiles: function (fileList, forcedTicker) {
+    var files = Array.prototype.slice.call(fileList || []);
+    if (!files.length) return;
+    var report = [];
+    Promise.all(files.map(function (f) {
+      var sym = forcedTicker && files.length === 1 ? forcedTicker : DataSource.symbolFromFilename(f.name);
+      if (sym) sym = DataSource.resolveSymbol(sym);
+      if (!sym) sym = Util.normSym(prompt('Nie rozpoznano symbolu z nazwy pliku „' + f.name + '”. Podaj symbol (np. PKN.WA, AAPL):', '') || '');
+      if (!sym || !Util.isSym(sym)) { report.push(f.name + ': pominięto (brak symbolu)'); return null; }
+      return UI.readFile(f).then(function (text) {
+        var parsed = DataSource.parseCSV(text);
+        DataSource.setQuotes(sym, parsed.rows, 'file');
+        report.push(sym + ': ' + parsed.rows.length + ' notowań (' + Fmt.date(parsed.rows[0][0]) + ' – ' + Fmt.date(parsed.rows[parsed.rows.length - 1][0]) + ')');
+      }).catch(function (e) { report.push(f.name + ': błąd – ' + e.message); });
+    })).then(function () {
+      var saved = DataSource.saveCache(UI.cacheCutoff());
+      UI.renderAll();
+      UI.ensureData(null, true);
+      UI.toast(report.join(' · ') + (Storage.available && !saved ? ' · (brak miejsca w pamięci przeglądarki)' : ''));
+    });
+  },
+
+  runDiagnostics: function () {
+    var out = UI.$('diagOut');
+    out.innerHTML = '<div class="notice">Sprawdzanie połączeń…</div>';
+    var today = Util.todayISO(), from = Util.addDays(today, -10);
+    var test = function (name, url, check) {
+      return DataSource.fetchWithTimeout(url)
+        .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+        .then(function (t) { return '✔ ' + name + ': ' + check(t); })
+        .catch(function (e) { return '✘ ' + name + ': ' + (e.name === 'TypeError' || e.name === 'AbortError' ? DataSource.describeFetchError(e) : e.message); });
+    };
+    Promise.all([
+      test('Serwer danych (GitHub)', DataSource.dataUrl + 'index.json?t=' + Date.now(), function (t) { var m = JSON.parse(t); return (m.symbols || []).length + ' walorów, ' + Fmt.dateTime(m.generated); }),
+      test('NBP (kursy walut)', Config.nbpUrl('eur', from, today), function (t) { JSON.parse(t); return 'działa'; }),
+      test('Stooq (bezpośrednio)', Config.stooqCsvUrl('wig20'), function (t) { DataSource.parseCSV(t); return 'działa'; })
+    ]).then(function (lines) {
+      out.innerHTML = '<div class="notice">' + lines.map(UI.esc).join('<br>') + '<br><span class="muted">Stooq z przeglądarki zwykle nie działa (brak CORS) – to oczekiwane.</span></div>';
+    });
+  },
+
+  /* ---------- eksport / import ---------- */
+  exportJson: function () {
+    var data = { app: Config.APP_ID, version: Config.VERSION, exportedAt: new Date().toISOString(), state: UI.state };
+    if (UI.$('chkExportQuotes').checked) {
+      var cutoff = UI.cacheCutoff(), syms = {};
+      UI.allTransactions().forEach(function (t) { syms[t.ticker] = true; });
+      syms[UI.state.settings.benchmark] = true;
+      var trim = function (rows) { return rows.filter(function (r, i) { return r[0] >= cutoff || i === rows.length - 1; }); };
+      data.quotes = {}; data.fx = {};
+      Object.keys(syms).forEach(function (t) {
+        var q = DataSource.quotes[t];
+        if (q && q.rows) data.quotes[t] = { origin: q.origin, fetchedAt: q.fetchedAt, currency: DataSource.currencyOf(t), rows: trim(q.rows) };
+      });
+      Object.keys(DataSource.fx).forEach(function (c) { var f = DataSource.fx[c]; if (f.rows) data.fx[c] = { origin: f.origin, rows: trim(f.rows) }; });
+    }
+    UI.download('portfel-' + Util.todayISO() + '.json', JSON.stringify(data, null, 1), 'application/json');
+  },
+
+  importJsonFile: function (file) {
+    UI.readFile(file).then(function (text) {
+      var data = JSON.parse(text.replace(/^\uFEFF/, ''));
+      var st = UI.normalizeState(data.state || data);
+      var legacy = !((data.state || data).version >= 2);
+      var nTx = st.portfolios.reduce(function (s, p) { return s + p.transactions.length; }, 0);
+      var nQ = data.quotes ? Object.keys(data.quotes).length : 0;
+      if (!confirm('Zastąpić bieżące dane zawartością pliku?\n\nPortfele: ' + st.portfolios.length + ', transakcje: ' + nTx + (nQ ? ', notowania: ' + nQ + ' walorów' : ''))) return;
+      st.settings.dataUrl = UI.state.settings.dataUrl;   // adres serwera to ustawienie komputera, nie portfela
+      UI.state = st;
+      var valid = function (rows) { return (rows || []).filter(function (r) { return Util.isISODate(r[0]) && r[1] > 0; }).sort(function (a, b) { return a[0] < b[0] ? -1 : 1; }); };
+      if (data.quotes) Object.keys(data.quotes).forEach(function (t) {
+        var q = data.quotes[t], rows = valid(q && q.rows), sym = legacy ? UI.migrateTicker(t) : Util.normSym(t);
+        if (rows.length) DataSource.quotes[sym] = { rows: rows, origin: q.origin === 'net' ? 'file' : (q.origin || 'file'), fetchedAt: q.fetchedAt || null, session: 'file' };
+      });
+      if (data.fx) Object.keys(data.fx).forEach(function (c) {
+        var rows = valid(data.fx[c].rows);
+        if (rows.length) DataSource.fx[c.toUpperCase()] = { rows: rows, origin: data.fx[c].origin || 'file', session: 'file' };
+      });
+      UI.save(); DataSource.saveCache(UI.cacheCutoff());
+      UI.fillBenchmarks(); UI.applyTheme(); UI.cancelEdit(); UI.renderAll(); UI.ensureData(null, true);
+      UI.toast('Zaimportowano dane z pliku ' + file.name + '.');
+    }).catch(function (e) { alert('Błąd importu JSON: ' + e.message); });
+  },
+
+  exportPositionsCsv: function () {
+    var list = UI.sortedPositions(), asOf = UI.asOf();
+    var header = ['Walor', 'Nazwa', 'Waluta', 'Ilość', 'Śr. cena zakupu', 'Kurs', 'Data kursu', 'Kurs waluty PLN', 'Koszt PLN', 'Wartość PLN', 'Zysk/strata PLN', 'Zysk/strata %', 'Zysk zrealizowany FIFO PLN', 'Udział %'];
+    var q = function (s) { s = String(s == null ? '' : s); return /[;"\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    var lines = [header.join(';')].concat(list.map(function (p) {
+      var info = Util.ccyInfo(p.currency);
+      return [p.ticker, q(DataSource.nameOf(p.ticker)), p.currency, Fmt.csvNum(p.qty, 4), Fmt.csvNum(p.avgPrice, 4), Fmt.csvNum(p.price, 4), p.priceDate,
+        Fmt.csvNum(p.rate == null ? null : p.rate / info.factor, 4), Fmt.csvNum(p.cost), Fmt.csvNum(p.value), Fmt.csvNum(p.unrealized),
+        Fmt.csvNum(p.unrealizedPct == null ? null : p.unrealizedPct * 100), Fmt.csvNum(p.realized), Fmt.csvNum(p.weight * 100)].join(';');
+    }));
+    var name = UI.active().name.replace(/[^\w\-ąćęłńóśźżĄĆĘŁŃÓŚŹŻ ]+/g, '').trim().replace(/\s+/g, '_') || 'portfel';
+    UI.download('pozycje-' + name + '-' + asOf + '.csv', '\uFEFF' + lines.join('\r\n') + '\r\n', 'text/csv;charset=utf-8');
+  },
+
+  showSelfTests: function () {
+    var r = runSelfTests();
+    UI.$('selftestCard').classList.remove('hidden');
+    UI.$('selftestOut').textContent = (r.ok ? 'WSZYSTKIE TESTY ZALICZONE' : 'NIEZALICZONE TESTY: ' + r.failed) + ' (' + r.results.length + ')\n\n' +
+      r.results.map(function (x) { return (x.ok ? '✔ ' : '✘ ') + x.name + (x.ok ? '' : '  → ' + x.detail); }).join('\n');
+    document.body.setAttribute('data-selftest', r.ok ? 'pass' : 'fail');
+  }
+};
+
+/* =============================================================================
+ * Testy – uruchom z konsoli: runSelfTests()
+ * ========================================================================== */
+function runSelfTests() {
+  var results = [];
+  var t = function (name, fn) {
+    try { var d = fn(); results.push({ name: name, ok: d === true, detail: d === true ? '' : String(d) }); }
+    catch (e) { results.push({ name: name, ok: false, detail: 'wyjątek: ' + e.message }); }
+  };
+  var near = function (a, b, eps) { return Math.abs(a - b) <= (eps || 1e-6) ? true : ('oczekiwano ' + b + ', jest ' + a); };
+  var tx = function (id, ticker, type, date, qty, price, fee, extra) {
+    return Object.assign({ id: id, seq: id, ticker: ticker, type: type, date: date, qty: qty, price: price, fee: fee || 0, currency: 'PLN' }, extra || {});
+  };
+  var E = PortfolioEngine;
+  var pln = function (prices) { return { prices: prices || {}, ccy: {}, fx: {} }; };
+
+  // --- FIFO ---
+  t('FIFO: sprzedaż zdejmuje najstarsze partie', function () {
+    var p = E.fifo([tx(1, 'ABC', 'BUY', '2024-01-02', 10, 100), tx(2, 'ABC', 'BUY', '2024-02-01', 10, 120), tx(3, 'ABC', 'SELL', '2024-03-01', 15, 130)]).ABC;
+    var a = near(p.realized, 350); if (a !== true) return a;          // 1950 − (1000 + 600)
+    if (p.qty !== 5) return 'ilość ' + p.qty;
+    return near(p.cost, 600);
+  });
+  t('FIFO: prowizje w koszcie i przychodzie', function () {
+    return near(E.fifo([tx(1, 'X', 'BUY', '2024-01-02', 10, 100, 10), tx(2, 'X', 'SELL', '2024-01-10', 10, 110, 5)]).X.realized, 1100 - 5 - 1010);
+  });
+  t('FIFO: wiele sprzedaży, w tym samym dniu kupno przed sprzedażą', function () {
+    var p = E.fifo([tx(2, 'Y', 'SELL', '2024-01-02', 5, 12), tx(1, 'Y', 'BUY', '2024-01-02', 10, 10), tx(3, 'Y', 'BUY', '2024-01-05', 10, 20), tx(4, 'Y', 'SELL', '2024-01-08', 10, 15)]).Y;
+    var a = near(p.realized, 10); if (a !== true) return a;
+    return near(p.cost, 100);
+  });
+  t('Walidacja: wykrywa sprzedaż większą niż posiadana ilość', function () {
+    var v = E.validateSequence([tx(1, 'Z', 'BUY', '2024-01-02', 10, 10), tx(2, 'Z', 'SELL', '2024-01-03', 11, 10)]);
+    return v.ok === false && v.held === 10 ? true : JSON.stringify(v);
+  });
+
+  // --- waluty ---
+  var fxUSD = [['2024-01-02', 4.0], ['2024-06-03', 3.8]];
+  t('Waluty: pozycja w USD – koszt po kursie z dnia zakupu, wycena po bieżącym', function () {
+    var ctx = { prices: { AAPL: [['2024-01-02', 100], ['2024-06-03', 110]] }, ccy: { AAPL: 'USD' }, fx: { USD: fxUSD } };
+    var v = E.valuation([tx(1, 'AAPL', 'BUY', '2024-01-02', 10, 100, 0, { currency: 'USD' })], ctx, '2024-06-03');
+    var p = v.positions[0];
+    var a = near(p.cost, 4000); if (a !== true) return a;            // 1000 USD × 4,00
+    a = near(p.value, 4180); if (a !== true) return a;               // 1100 USD × 3,80
+    return near(p.avgPrice, 100) === true && near(v.totals.unrealized, 180) === true ? true : JSON.stringify(p);
+  });
+  t('Waluty: zysk zrealizowany w PLN obejmuje efekt kursowy', function () {
+    var ctx = { prices: {}, ccy: { AAPL: 'USD' }, fx: { USD: fxUSD } };
+    var p = E.fifo([tx(1, 'AAPL', 'BUY', '2024-01-02', 10, 100, 0, { currency: 'USD' }), tx(2, 'AAPL', 'SELL', '2024-06-03', 10, 100, 0, { currency: 'USD' })], null, ctx).AAPL;
+    return near(p.realized, -200);                                    // ta sama cena w USD, dolar tańszy o 0,20
+  });
+  t('Waluty: GBp (pensy) = GBP/100, kurs ręczny ma pierwszeństwo', function () {
+    var ctx = { prices: {}, ccy: { 'VOD.L': 'GBp' }, fx: { GBP: [['2024-01-02', 5.0]] } };
+    var a = E.fifo([tx(1, 'VOD.L', 'BUY', '2024-01-02', 100, 500, 0, { currency: 'GBp' })], null, ctx)['VOD.L'];
+    var b = E.fifo([tx(1, 'VOD.L', 'BUY', '2024-01-02', 100, 500, 0, { currency: 'GBp', fx: 0.051 })], null, ctx)['VOD.L'];
+    return near(a.cost, 2500) === true && near(b.cost, 2550) === true ? true : a.cost + ' / ' + b.cost;
+  });
+  t('Waluty: brak kursu → zgłoszony brak, a nie błędna wartość', function () {
+    var v = E.valuation([tx(1, 'SAP.DE', 'BUY', '2024-01-02', 1, 100, 0, { currency: 'EUR' })], { prices: {}, ccy: { 'SAP.DE': 'EUR' }, fx: {} }, '2024-02-01');
+    return v.totals.missingFx[0] === 'EUR' && !isFinite(v.totals.value) ? true : JSON.stringify(v.totals);
+  });
+
+  // --- XIRR ---
+  t('XIRR: przykład z dokumentacji Excela = 37,336%', function () {
+    return near(E.xirr([{ date: '2008-01-01', amount: -10000 }, { date: '2008-03-01', amount: 2750 }, { date: '2008-10-30', amount: 4250 },
+      { date: '2009-02-15', amount: 3250 }, { date: '2009-04-01', amount: 2750 }]), 0.373362535, 1e-6);
+  });
+  t('XIRR: −1000 → +1100 po 365 dniach = 10%', function () {
+    return near(E.xirr([{ date: '2023-01-01', amount: -1000 }, { date: '2024-01-01', amount: 1100 }]), 0.1, 1e-9);
+  });
+  t('XIRR: strata 50% w rok = −50%', function () {
+    return near(E.xirr([{ date: '2023-01-01', amount: -1000 }, { date: '2024-01-01', amount: 500 }]), -0.5, 1e-7);
+  });
+  t('XIRR: brak zmiany znaku → null', function () {
+    return E.xirr([{ date: '2023-01-01', amount: -1000 }, { date: '2024-01-01', amount: -5 }]) === null ? true : 'oczekiwano null';
+  });
+
+  // --- parser CSV ---
+  t('CSV: format Stooq PL (przecinek, BOM, puste linie, CRLF)', function () {
+    var r = DataSource.parseCSV('\uFEFFData,Otwarcie,Najwyzszy,Najnizszy,Zamkniecie,Wolumen\r\n2024-01-02,10,11,9,10.5,1000\r\n\r\n2024-01-03,10.5,12,10,11.25,2000\r\n\r\n').rows;
+    return r.length === 2 && r[0][0] === '2024-01-02' && r[1][1] === 11.25 ? true : JSON.stringify(r);
+  });
+  t('CSV: format EN ze średnikiem i przecinkiem dziesiętnym, cudzysłowy, nieposortowany', function () {
+    var p = DataSource.parseCSV('"Date";"Open";"High";"Low";"Close";"Volume"\n05.01.2024;1;1;1;"1 234,56";10\n2024-01-04;1;1;1;99,5;10\nzły wiersz;;;;;\n'), r = p.rows;
+    return r.length === 2 && r[0][1] === 99.5 && r[1][0] === '2024-01-05' && r[1][1] === 1234.56 && p.skipped === 1 ? true : JSON.stringify(p);
+  });
+  t('CSV: format lustra (Date,Close) i polskie znaki w nagłówku', function () {
+    var a = DataSource.parseCSV('Date,Close\n2024-02-01,5.5\n').rows, b = DataSource.parseCSV('Data;Zamknięcie\n2024-02-01;5,5\n').rows;
+    return a[0][1] === 5.5 && b[0][1] === 5.5 ? true : JSON.stringify([a, b]);
+  });
+  t('CSV: strona HTML zamiast CSV → czytelny błąd', function () {
+    try { DataSource.parseCSV('<!DOCTYPE html><html>verify</html>'); return 'brak błędu'; }
+    catch (e) { return /HTML/.test(e.message) ? true : e.message; }
+  });
+  t('Symbol z nazwy pliku (Stooq i lustro)', function () {
+    var c = [['pkn_d.csv', 'PKN.WA'], ['WIG20_d (1).csv', 'WIG20.WA'], ['C:\\Pobrane\\cdr_d.csv', 'CDR.WA'], ['11b_d.csv', '11B.WA'],
+      ['aapl_us_d.csv', 'AAPL'], ['vod_uk_d.csv', 'VOD.L'], ['7203_jp_d.csv', '7203.T'], ['sap_de_d.csv', 'SAP.DE'],
+      ['PKN.WA.csv', 'PKN.WA'], ['_GSPC.csv', '^GSPC'], ['ERIC-B.ST.csv', 'ERIC-B.ST'], ['^spx_d.csv', '^GSPC']];
+    for (var i = 0; i < c.length; i++) if (DataSource.symbolFromFilename(c[i][0]) !== c[i][1]) return c[i][0] + ' → ' + DataSource.symbolFromFilename(c[i][0]);
+    return true;
+  });
+  t('Symbol Stooq dla linku awaryjnego', function () {
+    var c = [['PKN.WA', 'pkn'], ['AAPL', 'aapl.us'], ['VOD.L', 'vod.uk'], ['7203.T', '7203.jp'], ['WIG20.WA', 'wig20'], ['MC.PA', null]];
+    for (var i = 0; i < c.length; i++) if (DataSource.stooqSymbol(c[i][0]) !== c[i][1]) return c[i][0] + ' → ' + DataSource.stooqSymbol(c[i][0]);
+    return true;
+  });
+  t('Migracja danych z wersji 1 (tickery GPW → Yahoo)', function () {
+    var s = UI.normalizeState({ portfolios: [{ name: 'A', transactions: [{ ticker: 'pkn', type: 'BUY', date: '2024-01-02', qty: 1, price: 10 }] }], settings: { benchmark: 'wig' } });
+    var x = s.portfolios[0].transactions[0];
+    return x.ticker === 'PKN.WA' && x.currency === 'PLN' && s.settings.benchmark === 'WIG.WA' ? true : JSON.stringify(s);
+  });
+
+  // --- dni bez notowań ---
+  var rows = [['2024-01-04', 100], ['2024-01-05', 102], ['2024-01-08', 104]];
+  t('Dni bez notowań: sobota/niedziela → zamknięcie z piątku', function () {
+    var a = E.priceAt(rows, '2024-01-06'), b = E.priceAt(rows, '2024-01-07');
+    return a.close === 102 && b.date === '2024-01-05' ? true : JSON.stringify([a, b]);
+  });
+  t('Dni bez notowań: przed pierwszym notowaniem → null, po ostatnim → ostatnie', function () {
+    return E.priceAt(rows, '2024-01-01') === null && E.priceAt(rows, '2024-12-31').close === 104 ? true : 'błąd';
+  });
+  t('Szereg czasowy: transakcja w weekend wyceniana poprzednim zamknięciem', function () {
+    var s = E.timeSeries([tx(1, 'Q', 'BUY', '2024-01-06', 10, 102)], pln({ Q: rows }), null, '2024-01-08');
+    return s.dates.join() === '2024-01-06,2024-01-08' && s.value[0] === 1020 && s.value[1] === 1040 ? true : JSON.stringify(s);
+  });
+  t('TWR odporny na dopłaty, benchmark znormalizowany do 100', function () {
+    var ctx = pln({ Q: [['2024-01-02', 100], ['2024-01-03', 110], ['2024-01-04', 110]], B: [['2024-01-01', 2000], ['2024-01-03', 2200]] });
+    var s = E.timeSeries([tx(1, 'Q', 'BUY', '2024-01-02', 10, 100), tx(2, 'Q', 'BUY', '2024-01-04', 90, 110)], ctx, 'B', '2024-01-04');
+    var a = near(s.twr[2], 110, 1e-9); if (a !== true) return a;
+    return near(s.bench[0], 100) === true && near(s.bench[1], 110) === true ? true : JSON.stringify(s.bench);
+  });
+  t('Szereg czasowy w PLN: wartość i benchmark przeliczane kursem z danego dnia', function () {
+    var ctx = { prices: { AAPL: [['2024-01-02', 100], ['2024-01-03', 100]], SPX: [['2024-01-02', 5000], ['2024-01-03', 5000]] },
+      ccy: { AAPL: 'USD', SPX: 'USD' }, fx: { USD: [['2024-01-02', 4.0], ['2024-01-03', 4.4]] } };
+    var s = E.timeSeries([tx(1, 'AAPL', 'BUY', '2024-01-02', 10, 100, 0, { currency: 'USD' })], ctx, 'SPX', '2024-01-03');
+    return near(s.value[1], 4400) === true && near(s.twr[1], 110) === true && near(s.bench[1], 110) === true ? true : JSON.stringify(s);
+  });
+  t('Maksymalne obsunięcie', function () {
+    var d = E.maxDrawdown([100, 120, 90, 130, 65, 70]);
+    return near(d.value, -0.5) === true && d.peakIdx === 3 && d.troughIdx === 4 ? true : JSON.stringify(d);
+  });
+  t('Wycena: brak notowań → cena ostatniej transakcji, XIRR i zysk', function () {
+    var v = E.valuation([tx(1, 'N', 'BUY', '2023-01-01', 10, 100)], pln({ N: [['2024-01-01', 110]] }), '2024-01-01');
+    var a = near(v.totals.totalPL, 100); if (a !== true) return a;
+    var b = near(v.totals.xirr, 0.1, 1e-9); if (b !== true) return b;
+    var w = E.valuation([tx(1, 'M', 'BUY', '2023-01-01', 10, 100)], pln(), '2024-01-01');
+    return w.totals.missingQuotes[0] === 'M' && w.totals.value === 1000 ? true : JSON.stringify(w.totals);
+  });
+
+  var failed = results.filter(function (r) { return !r.ok; }).length;
+  if (typeof console !== 'undefined' && console.table) console.table(results);
+  return { ok: failed === 0, failed: failed, results: results };
+}
+
+if (typeof document !== 'undefined') {
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', UI.init); else UI.init();
+}
+</script>
+</body>
+</html>

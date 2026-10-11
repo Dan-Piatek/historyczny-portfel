@@ -1,0 +1,60 @@
+name: Aktualizacja notowan
+
+on:
+  schedule:
+    - cron: '30 22 * * 1-5'   # pn–pt 22:30 UTC, po zamknięciu sesji w USA (Europa i Japonia wcześniej)
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: 'Tylko pierwsze N symboli (0 = wszystkie)'
+        default: '0'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: windows-latest
+    timeout-minutes: 350
+    steps:
+      - name: Pobierz kod
+        uses: actions/checkout@v4
+
+      - name: Pobierz poprzednie dane (galaz data)
+        shell: powershell
+        run: |
+          git clone --depth 1 --branch data "https://github.com/${{ github.repository }}.git" out 2>$null
+          if (-not (Test-Path out)) { New-Item -ItemType Directory out | Out-Null }
+          if (Test-Path out\.git) { Remove-Item -Recurse -Force out\.git }
+
+      - name: Aktualizuj notowania i kursy walut
+        shell: powershell
+        run: ./tools/update-data.ps1 -Universe config/universe.csv -Out out -Limit ${{ github.event.inputs.limit || 0 }}
+
+      - name: Opublikuj galaz data (jeden commit, bez historii)
+        shell: powershell
+        run: |
+          Set-Location out
+          "* -text" | Out-File -Encoding ascii .gitattributes
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -q -b data
+          git add -A
+          git commit -q -m "Dane z $(Get-Date -Format 'yyyy-MM-dd HH:mm') UTC"
+          git push -q --force "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" data
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+
+      # GitHub wyłącza zaplanowane workflow po 60 dniach bez aktywności w repozytorium – ponowne
+      # włączenie przez API resetuje ten licznik.
+      - name: Podtrzymaj harmonogram
+        if: always()
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X PUT "repos/${{ github.repository }}/actions/workflows/update-data.yml/enable"
