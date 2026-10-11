@@ -1008,7 +1008,10 @@ var PortfolioEngine = {
     var info = Util.ccyInfo(ccy);
     if (info.code === 'PLN') return info.factor;
     // Kurs NBP z dnia lub ostatni wcześniejszy, przemnożony przez factor (GBp → 0,01 × kurs GBP)
-    var q = PortfolioEngine.priceAt(ctx && ctx.fx ? ctx.fx[info.code] : null, date);
+    var rows = ctx && ctx.fx ? ctx.fx[info.code] : null;
+    var q = PortfolioEngine.priceAt(rows, date);
+    // Dzień tuż przed początkiem archiwum NBP (np. 01.01.2002 – święto) → pierwszy dostępny kurs, jeśli najwyżej 7 dni później
+    if (!q && rows && rows.length && Util.daysBetween(date, rows[0][0]) <= 7) q = { date: rows[0][0], close: rows[0][1] };
     return q ? q.close * info.factor : null;
   },
   /** Waluta transakcji: zapisana w transakcji, z kontekstu, domyślnie PLN. */
@@ -1845,6 +1848,19 @@ var UI = {
     });
   },
 
+  /** Najwcześniejsza data, od której walor da się wycenić w PLN: pierwsze notowanie, a dla walut obcych
+   *  także pierwszy kurs NBP (archiwum od 02.01.2002). null, gdy brak notowań lub kursów. */
+  dataStart: function (sym) {
+    var rows = DataSource.getRows(sym); if (!rows) return null;
+    var start = rows[0][0], code = Util.ccyInfo(DataSource.currencyOf(sym)).code;
+    if (code !== 'PLN') {
+      var fx = DataSource.fx[code];
+      if (!fx || !fx.rows || !fx.rows.length) return null;
+      if (fx.rows[0][0] > start) start = fx.rows[0][0];
+    }
+    return start;
+  },
+
   /** Wszystkie plany ze wszystkich portfeli. */
   allPlans: function () { return UI.state.portfolios.reduce(function (a, p) { return a.concat(p.plans || []); }, []); },
 
@@ -1857,9 +1873,11 @@ var UI = {
         var rows = DataSource.getRows(pl.ticker); if (!rows) return;
         var have = {};
         p.transactions.forEach(function (t) { if (t.planId === pl.id) have[t.planDate] = true; });
-        var ccy = DataSource.currencyOf(pl.ticker) || 'PLN';
+        var ccy = DataSource.currencyOf(pl.ticker) || 'PLN', from = UI.dataStart(pl.ticker);
+        if (!from) return;
         PortfolioEngine.planSchedule(pl, today).forEach(function (d) {
           if (have[d] || pl.skip.indexOf(d) >= 0) return;
+          if (d < from) return;   // rata przed debiutem waloru lub przed początkiem kursów NBP – nie do wykonania
           var q = PortfolioEngine.firstAt(rows, d);
           if (!q || q.date > today) return;                       // brak jeszcze sesji – rata poczeka
           var rate = PortfolioEngine.fxRate(ctx, ccy, q.date);
@@ -1885,7 +1903,6 @@ var UI = {
     if (!pl.ticker || !Util.isSym(pl.ticker)) err.push('Podaj walor.');
     if (!(pl.amount > 0)) err.push('Podaj kwotę raty.');
     if (!Util.isISODate(pl.start)) err.push('Podaj datę początku.');
-    else if (pl.start < '2002-01-02') err.push('Plan może zaczynać się najwcześniej 2002-01-02 (kursy NBP).');
     if (pl.end && pl.end < pl.start) err.push('Data końca jest wcześniejsza niż początek.');
     if (!(pl.fee >= 0)) err.push('Prowizja nie może być ujemna.');
     if (err.length) { msg.innerHTML = '<div class="notice err">' + err.map(UI.esc).join('<br>') + '</div>'; return; }
@@ -1896,9 +1913,12 @@ var UI = {
     UI.save();
     UI.ensureData([pl.ticker]).then(function () {
       var n = p.transactions.filter(function (t) { return t.planId === pl.id; }).length;
-      var sched = PortfolioEngine.planSchedule(pl, pl.end || '9999-12-31').length;
+      var sched = PortfolioEngine.planSchedule(pl, pl.end || '9999-12-31').length, from = UI.dataStart(pl.ticker);
+      var before = from ? PortfolioEngine.planSchedule(pl, Util.addDays(from, -1)).length : 0;
       msg.innerHTML = '<div class="notice ok">Dodano plan ' + UI.esc(pl.ticker) + ': ' + n + ' rat wykonanych' +
-        (pl.end ? ' z ' + sched + ' zaplanowanych' : '') + (DataSource.getRows(pl.ticker) ? '' : ' – brak notowań waloru, raty powstaną po ich wczytaniu') + '.</div>';
+        (pl.end ? ' z ' + sched + ' zaplanowanych' : '') + (DataSource.getRows(pl.ticker) ? '' : ' – brak notowań waloru, raty powstaną po ich wczytaniu') + '.' +
+        (before ? '<br>' + before + ' rat przed ' + Fmt.date(from) + ' pominięto – dane dostępne od tego dnia (' +
+          (from === DataSource.getRows(pl.ticker)[0][0] ? 'pierwsze notowanie' : 'początek kursów NBP') + ').' : '') + '</div>';
       $('pAmount').value = '';
     });
   },
@@ -1926,7 +1946,8 @@ var UI = {
         var txs = p.transactions.filter(function (t) { return t.planId === pl.id; }), ctx = UI.ctx();
         var invested = txs.reduce(function (s, t) { var r = PortfolioEngine.txRate(t, ctx); return s + (t.qty * t.price + t.fee) * (r == null ? NaN : r); }, 0);
         var have = {}; txs.forEach(function (t) { have[t.planDate] = true; });
-        var next = PortfolioEngine.planSchedule(pl, Util.addDays(today, 400)).filter(function (d) { return !have[d] && pl.skip.indexOf(d) < 0; })[0];
+        var from = UI.dataStart(pl.ticker) || pl.start;   // raty sprzed początku danych nie są „następne”
+        var next = PortfolioEngine.planSchedule(pl, Util.addDays(today, 400)).filter(function (d) { return d >= from && !have[d] && pl.skip.indexOf(d) < 0; })[0];
         return '<tr><td class="left"><b>' + UI.esc(pl.ticker) + '</b><div class="name">' + UI.esc(DataSource.nameOf(pl.ticker)) + '</div></td>' +
           '<td>' + Fmt.pln(pl.amount) + (pl.fee ? '<div class="muted small-text">+ prowizja ' + Fmt.pln(pl.fee) + '</div>' : '') + '</td>' +
           '<td class="left">' + fr[pl.freq] + (pl.freq === 'W' ? '' : ', dzień ' + pl.day) + '</td>' +
@@ -2255,7 +2276,7 @@ var UI = {
       if (!rows) parts.push(DataSource.symbols[tx.ticker] ? 'pobieranie notowań…' : 'brak notowań – walidacja ceny niedostępna');
       else {
         var q = PortfolioEngine.priceAt(rows, tx.date);
-        parts.push(q ? 'zamknięcie ' + (q.date === tx.date ? 'z tego dnia' : 'z ' + Fmt.date(q.date) + ' (brak sesji w wybranym dniu)') + ': ' + Fmt.money(q.close, tx.currency) : 'brak notowań przed tą datą');
+        parts.push(q ? 'zamknięcie ' + (q.date === tx.date ? 'z tego dnia' : 'z ' + Fmt.date(q.date) + ' (brak sesji w wybranym dniu)') + ': ' + Fmt.money(q.close, tx.currency) : 'brak notowań przed tą datą (notowania od ' + Fmt.date(rows[0][0]) + ')');
       }
       if (info.code !== 'PLN') {
         var r = PortfolioEngine.fxRate(UI.ctx(), info.code, tx.date);
@@ -2370,7 +2391,7 @@ var UI = {
     var tpl = Config.TEMPLATES.filter(function (x) { return x.id === $('tplSelect').value; })[0];
     var date = $('tplDate').value, amount = DataSource.parseNumber($('tplAmount').value);
     if (!tpl) return;
-    if (!Util.isISODate(date) || date > Util.todayISO() || date < '2002-01-02') { msg.innerHTML = '<div class="notice err">Podaj datę od 2002-01-02 do dziś.</div>'; return; }
+    if (!Util.isISODate(date) || date > Util.todayISO()) { msg.innerHTML = '<div class="notice err">Podaj datę zakupu (nie z przyszłości).</div>'; return; }
     if (!(amount > 0)) { msg.innerHTML = '<div class="notice err">Podaj kwotę większą od zera.</div>'; return; }
     if (!DataSource.manifest) { msg.innerHTML = '<div class="notice err">Brak połączenia z serwerem danych – szablony wymagają notowań.</div>'; return; }
     $('btnTplCreate').disabled = true;
@@ -2387,8 +2408,11 @@ var UI = {
         var sym = it[0], rows = DataSource.getRows(sym);
         if (!rows) { skipped.push(sym + ' (brak notowań)'); return; }
         // cena z dnia (lub ostatniej sesji przed nim); gdy walor notowany później – pierwsza sesja po dacie
-        var q = PortfolioEngine.priceAt(rows, date);
-        if (!q) { var r = rows.filter(function (x) { return x[0] >= date; })[0]; if (r) { q = { date: r[0], close: r[1] }; later.push(sym + ' od ' + Fmt.date(r[0])); } }
+        // Kupno najwcześniej w dniu, od którego walor da się wycenić (debiut; dla walut obcych także kursy NBP od 2002 r.)
+        var from = UI.dataStart(sym);
+        if (!from) { skipped.push(sym + ' (brak notowań lub kursu waluty)'); return; }
+        var q = date >= from ? PortfolioEngine.priceAt(rows, date) : PortfolioEngine.firstAt(rows, from);
+        if (q && date < from) later.push(sym + ' od ' + Fmt.date(q.date));
         if (!q) { skipped.push(sym + ' (brak notowań)'); return; }
         var ccy = DataSource.currencyOf(sym) || 'PLN', rate = PortfolioEngine.fxRate(ctx, ccy, q.date);
         if (rate == null) { skipped.push(sym + ' (brak kursu ' + Util.ccyInfo(ccy).code + ')'); return; }
@@ -2401,7 +2425,7 @@ var UI = {
       UI.state.portfolios.push(p); UI.state.activeId = p.id;
       UI.cancelEdit(); UI.save(); DataSource.saveCache(UI.cacheCutoff()); UI.renderAll();
       msg.innerHTML = '<div class="notice ok">Utworzono portfel: ' + txs.length + ' walorów.' +
-        (later.length ? '<br>Kupione później (notowane od): ' + UI.esc(later.join(', ')) + '.' : '') +
+        (later.length ? '<br>Kupione w pierwszym dniu z danymi (debiut lub początek kursów NBP 02.01.2002): ' + UI.esc(later.join(', ')) + '.' : '') +
         (skipped.length ? '<br>Pominięte: ' + UI.esc(skipped.join(', ')) + '.' : '') + '</div>';
     }).catch(function (e) { msg.innerHTML = '<div class="notice err">' + UI.esc(e.message) + '</div>'; })
       .finally(function () { $('btnTplCreate').disabled = false; });
@@ -2584,6 +2608,10 @@ function runSelfTests() {
     var a = E.fifo([tx(1, 'VOD.L', 'BUY', '2024-01-02', 100, 500, 0, { currency: 'GBp' })], null, ctx)['VOD.L'];
     var b = E.fifo([tx(1, 'VOD.L', 'BUY', '2024-01-02', 100, 500, 0, { currency: 'GBp', fx: 0.051 })], null, ctx)['VOD.L'];
     return near(a.cost, 2500) === true && near(b.cost, 2550) === true ? true : a.cost + ' / ' + b.cost;
+  });
+  t('Waluty: dzień przed początkiem archiwum NBP (01.01.2002) → pierwszy kurs do 7 dni później', function () {
+    var ctx = { fx: { USD: [['2002-01-02', 3.948]] } };
+    return E.fxRate(ctx, 'USD', '2002-01-01') === 3.948 && E.fxRate(ctx, 'USD', '2001-12-01') === null ? true : 'błąd';
   });
   t('Waluty: brak kursu → zgłoszony brak, a nie błędna wartość', function () {
     var v = E.valuation([tx(1, 'SAP.DE', 'BUY', '2024-01-02', 1, 100, 0, { currency: 'EUR' })], { prices: {}, ccy: { 'SAP.DE': 'EUR' }, fx: {} }, '2024-02-01');

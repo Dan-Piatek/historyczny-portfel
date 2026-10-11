@@ -33,6 +33,14 @@ albo serwer jest niedostępny, aplikacja pokaże link do pliku CSV ze Stooq:
    Nie zmieniaj nazwy pliku, bo symbol jest odczytywany z nazwy.
 Pasuje każdy CSV z kolumnami Date/Data i Close/Zamkniecie.
 
+OD KIEDY SĄ DANE
+- Kursy walut NBP: od 02.01.2002 – walory w walutach obcych (USD, EUR, …) można wyceniać od tego dnia.
+- Notowania: od debiutu waloru lub od początku historii w Yahoo, osobno dla każdego waloru, np.
+  PKN.WA od 2000, PKO.WA od 2004, PZU.WA od 2010, Dino od 2017, Allegro od 2020, Żabka od 2024;
+  spółki z USA zwykle od lat 70.–80., z Niemiec od końca lat 80.
+- Szablony i plany z wcześniejszą datą działają: walor jest kupowany w pierwszym dniu, w którym
+  da się go wycenić, a raty sprzed tego dnia są pomijane (komunikat podaje, ile i dlaczego).
+
 GOTOWE PORTFELE I PLANY ZAKUPÓW
 - „Gotowy portfel z szablonu…” (panel Portfele): wybierz szablon branżowy lub strategię,
   datę i kwotę – aplikacja kupi składniki po cenach zamknięcia z tego dnia.
