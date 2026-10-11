@@ -27,6 +27,8 @@ param(
 $ErrorActionPreference = 'Stop'                 # każdy nieobsłużony błąd przerywa skrypt
 $ProgressPreference = 'SilentlyContinue'        # pasek postępu Invoke-WebRequest bardzo spowalnia PS 5.1
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12   # PS 5.1 domyślnie nie włącza TLS 1.2
+# TLS 1.3 (wartość 12288) – wymagany np. przez stat.gov.pl; na starszych systemach niedostępny, wtedy zostaje TLS 1.2
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]12288 } catch { }
 $Inv = [Globalization.CultureInfo]::InvariantCulture   # kropka dziesiętna niezależnie od ustawień systemu
 $Utf8 = New-Object Text.UTF8Encoding $false            # UTF-8 bez BOM dla plików z danymi
 # Yahoo odrzuca zapytania bez nagłówka przeglądarki
@@ -293,14 +295,33 @@ function ConvertTo-CpiIndex($mm, $dec) {
   return ,$out
 }
 
+# Pobiera plik jako bajty. Najpierw .NET (WebClient), a gdy serwer odrzuci połączenie TLS (np. stat.gov.pl na
+# serwerach GitHuba z Windows PowerShell 5.1) – curl z Gita (własna biblioteka OpenSSL) lub systemowy curl.exe.
+function Get-Bytes([string]$url) {
+  try {
+    $wc = New-Object Net.WebClient
+    $wc.Headers.Add('User-Agent', $UA)
+    return ,$wc.DownloadData($url)
+  } catch {
+    $first = $_.Exception.Message
+    $tmp = [IO.Path]::GetTempFileName()
+    foreach ($c in @((Join-Path $env:ProgramFiles 'Git\mingw64\bin\curl.exe'), 'curl.exe')) {
+      if ($c -like '*\*' -and -not (Test-Path $c)) { continue }
+      & $c -sSL --max-time 60 -A $UA -o $tmp $url 2>$null
+      if ($LASTEXITCODE -eq 0 -and (Get-Item $tmp).Length -gt 0) { $b = [IO.File]::ReadAllBytes($tmp); Remove-Item $tmp; return ,$b }
+    }
+    Remove-Item $tmp -ErrorAction SilentlyContinue
+    throw "pobranie nieudane ($first)"
+  }
+}
+
 $cpi = $null; $cpiSrc = $null
 try {
-  $page = Invoke-Get 'https://stat.gov.pl/obszary-tematyczne/ceny-handel/wskazniki-cen/wskazniki-cen-towarow-i-uslug-konsumpcyjnych-pot-inflacja-/miesieczne-wskazniki-cen-towarow-i-uslug-konsumpcyjnych-od-1982-roku/'
-  if ($page.body -notmatch 'href="(/download/[^"]*od1982roku[^"]*\.csv)"') { throw 'nie znaleziono linku do CSV na stronie GUS' }
-  $wc = New-Object Net.WebClient
-  $wc.Headers.Add('User-Agent', $UA)
+  $gusPage = 'https://stat.gov.pl/obszary-tematyczne/ceny-handel/wskazniki-cen/wskazniki-cen-towarow-i-uslug-konsumpcyjnych-pot-inflacja-/miesieczne-wskazniki-cen-towarow-i-uslug-konsumpcyjnych-od-1982-roku/'
+  $html = [Text.Encoding]::UTF8.GetString((Get-Bytes $gusPage))
+  if ($html -notmatch 'href="(/download/[^"]*od1982roku[^"]*\.csv)"') { throw 'nie znaleziono linku do CSV na stronie GUS' }
   # Pobranie jako bajty i dekodowanie Windows-1250 (Invoke-WebRequest zgadywałby kodowanie)
-  $text = [Text.Encoding]::GetEncoding(1250).GetString($wc.DownloadData('https://stat.gov.pl' + $Matches[1]))
+  $text = [Text.Encoding]::GetEncoding(1250).GetString((Get-Bytes ('https://stat.gov.pl' + $Matches[1])))
   $mm = @{}; $dec = @{}
   foreach ($line in $text -split "`r?`n") {
     $f = $line.Split(';')
