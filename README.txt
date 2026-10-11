@@ -33,6 +33,14 @@ albo serwer jest niedostępny, aplikacja pokaże link do pliku CSV ze Stooq:
    Nie zmieniaj nazwy pliku, bo symbol jest odczytywany z nazwy.
 Pasuje każdy CSV z kolumnami Date/Data i Close/Zamkniecie.
 
+GOTOWE PORTFELE I PLANY ZAKUPÓW
+- „Gotowy portfel z szablonu…” (panel Portfele): wybierz szablon branżowy lub strategię,
+  datę i kwotę – aplikacja kupi składniki po cenach zamknięcia z tego dnia.
+- „Plany regularnych zakupów”: stała kwota w PLN co tydzień / miesiąc / kwartał, od wybranej
+  daty, opcjonalnie do daty końca. Raty z przeszłości powstają od razu, kolejne są dopisywane
+  automatycznie, gdy pojawią się nowe notowania. Ratę można usunąć – nie wróci.
+- Tabela pozycji: „Usuń” kasuje wszystkie transakcje waloru; „Usuń wszystkie” czyści portfel.
+
 JAK PRZENIEŚĆ PORTFEL NA INNY KOMPUTER
 1. Kliknij „Eksport JSON”.
 2. Skopiuj plik portfel-RRRR-MM-DD.json na drugi komputer.

@@ -384,6 +384,40 @@ footer.app { padding: 12px 16px 24px; color: var(--text-2); font-size: 12px; tex
       </form>
     </div>
 
+    <!-- Plany regularnych zakupów (np. stała kwota co miesiąc) – raty generowane automatycznie (applyPlans) -->
+    <div class="card">
+      <h2>Plany regularnych zakupów</h2>
+      <form id="planForm" autocomplete="off" novalidate>
+        <div class="form-grid">
+          <label class="wide">Walor
+            <input id="pTicker" list="tickerList" placeholder="np. PKN.WA, AAPL, ETFBW20TR.WA">
+          </label>
+          <label>Kwota raty (PLN)
+            <input type="number" id="pAmount" min="0" step="any" inputmode="decimal" placeholder="np. 500">
+          </label>
+          <label>Częstotliwość
+            <select id="pFreq"><option value="M">co miesiąc</option><option value="Q">co kwartał</option><option value="W">co tydzień</option></select>
+          </label>
+          <label title="Dla planu miesięcznego i kwartalnego; 29–31 w krótszym miesiącu = ostatni dzień">Dzień miesiąca
+            <input type="number" id="pDay" min="1" max="31" step="1" value="10">
+          </label>
+          <label>Od
+            <input type="date" id="pStart">
+          </label>
+          <label title="Puste = bezterminowo; kolejne raty dopisywane, gdy pojawią się notowania">Do (opcjonalnie)
+            <input type="date" id="pEnd">
+          </label>
+          <label title="Prowizja od każdej raty">Prowizja (PLN)
+            <input type="number" id="pFee" min="0" step="any" inputmode="decimal" value="0">
+          </label>
+          <div class="btn-row"><button type="submit" class="primary">Dodaj plan</button></div>
+        </div>
+        <div class="hint" id="planHint">Rata = kupno po cenie zamknięcia z pierwszej sesji w dniu planu lub po nim; waluta po kursie NBP z dnia zakupu.</div>
+        <div id="planMsg"></div>
+      </form>
+      <div class="table-wrap"><table id="planTable"></table></div>
+    </div>
+
     <!-- Tabela pozycji (sortowalna, renderPositions) -->
     <div class="card">
       <h2>Pozycje <span class="spacer"></span><button id="btnExportCsv" class="small">Eksport CSV</button></h2>
@@ -1065,6 +1099,34 @@ var PortfolioEngine = {
 
   /** Maksymalne obsunięcie: największy spadek od szczytu (wartość ujemna, np. −0,25 = −25%) wraz z indeksami szczytu i dołka.
    *  Pomija wartości null/NaN. */
+  /** Pierwsza wartość z datą >= date (np. wykonanie raty planu w pierwszej sesji w dniu planu lub po nim). */
+  firstAt: function (rows, date) {
+    if (!rows || !rows.length || date > rows[rows.length - 1][0]) return null;
+    var lo = 0, hi = rows.length - 1;
+    while (lo < hi) { var mid = (lo + hi) >> 1; if (rows[mid][0] >= date) hi = mid; else lo = mid + 1; }
+    return { date: rows[lo][0], close: rows[lo][1] };
+  },
+
+  /** Daty rat planu od plan.start do min(plan.end, until) włącznie.
+   *  freq: 'M' – co miesiąc, 'Q' – co kwartał (w dniu plan.day, 29–31 obcinane do końca miesiąca), 'W' – co 7 dni od startu. */
+  planSchedule: function (plan, until) {
+    var end = plan.end && plan.end < until ? plan.end : until, out = [];
+    if (!plan.start || plan.start > end) return out;
+    if (plan.freq === 'W') {
+      for (var d = plan.start; d <= end; d = Util.addDays(d, 7)) out.push(d);
+      return out;
+    }
+    var step = plan.freq === 'Q' ? 3 : 1, y = +plan.start.slice(0, 4), m = +plan.start.slice(5, 7) - 1;
+    for (var i = 0; i < 2000; i++) {
+      var dim = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();           // liczba dni w miesiącu
+      var iso = y + '-' + String(m + 1).padStart(2, '0') + '-' + String(Math.min(plan.day || 1, dim)).padStart(2, '0');
+      if (iso > end) break;
+      if (iso >= plan.start) out.push(iso);
+      m += step; if (m > 11) { y += Math.floor(m / 12); m %= 12; }
+    }
+    return out;
+  },
+
   maxDrawdown: function (values) {
     var peak = -Infinity, peakIdx = -1, best = { value: 0, peakIdx: -1, troughIdx: -1 };
     for (var i = 0; i < values.length; i++) {
@@ -1453,10 +1515,19 @@ var UI = {
           date: String(t.date), qty: +t.qty, price: +t.price, fee: +t.fee || 0,
           currency: t.currency || (legacy ? 'PLN' : (Util.guessCurrency(sym) || 'PLN')) };
         if (+t.fx > 0) tx.fx = +t.fx;
+        if (t.planId) { tx.planId = String(t.planId); tx.planDate = String(t.planDate || t.date); }   // rata planu
         if (!Util.isSym(tx.ticker) || !Util.isISODate(tx.date) || !(tx.qty > 0) || !(tx.price > 0)) throw new Error('Nieprawidłowa transakcja w portfelu „' + np.name + '”.');
         // licznik seq zawsze większy od największego użytego numeru
         out.seq = Math.max(out.seq, tx.seq + 1);
         np.transactions.push(tx);
+      });
+      // Plany regularnych zakupów (od wersji z planami; starsze pliki ich nie mają)
+      np.plans = (p.plans || []).filter(function (pl) {
+        return pl && Util.isSym(Util.normSym(pl.ticker)) && Util.isISODate(pl.start) && +pl.amount > 0;
+      }).map(function (pl) {
+        return { id: String(pl.id || Util.uid()), ticker: Util.normSym(pl.ticker), amount: +pl.amount, freq: ['M', 'Q', 'W'].indexOf(pl.freq) >= 0 ? pl.freq : 'M',
+          day: Math.min(31, Math.max(1, +pl.day || 1)), start: pl.start, end: Util.isISODate(pl.end) ? pl.end : null, fee: +pl.fee || 0,
+          skip: Array.isArray(pl.skip) ? pl.skip.filter(Util.isISODate) : [] };
       });
       out.portfolios.push(np);
     });
@@ -1653,6 +1724,13 @@ var UI = {
     };
     $('btnClearTx').onclick = UI.clearTransactions;
 
+    // --- plany regularnych zakupów ---
+    $('planForm').onsubmit = function (e) { e.preventDefault(); UI.submitPlan(); };
+    $('pTicker').addEventListener('change', function () { var s = DataSource.resolveSymbol(this.value); if (s) this.value = s; });
+    $('pStart').max = Util.todayISO();
+    $('pStart').value = Util.addDays(Util.todayISO(), -3 * 365);   // domyślnie: 3 lata wstecz
+    $('planTable').onclick = function (e) { var b = e.target.closest('button[data-del-plan]'); if (b) UI.deletePlan(b.dataset.delPlan); };
+
     // --- szablony portfeli ---
     var groups = {};
     Config.TEMPLATES.forEach(function (t) { (groups[t.group] = groups[t.group] || []).push(t); });
@@ -1736,7 +1814,10 @@ var UI = {
   },
   /** Dociąga notowania wskazanych symboli (domyślnie: wszystkie z portfeli + benchmark) i potrzebne waluty. */
   ensureData: function (symbols, quiet) {
-    var all = UI.allTransactions();
+    // Plany traktowane jak „transakcje” od daty startu – żeby pobrać notowania i kursy od właściwego dnia
+    var all = UI.allTransactions().concat(UI.allPlans().map(function (pl) {
+      return { ticker: pl.ticker, date: pl.start, currency: DataSource.currencyOf(pl.ticker) || 'PLN' };
+    }));
     var syms = symbols || (function () {
       var set = {}; all.forEach(function (t) { set[t.ticker] = true; }); set[UI.state.settings.benchmark] = true; return Object.keys(set);
     })();
@@ -1758,9 +1839,103 @@ var UI = {
         .then(function (r2) { return r1.concat(r2).some(Boolean); });
     }).then(function (changed) {
       if (changed) { DataSource.saveCache(UI.cacheCutoff()); }
+      if (UI.applyPlans() > 0) UI.save();   // nowe raty planów, jeśli pojawiły się notowania z kolejnych dni
       UI.renderAll();
       return changed;
     });
+  },
+
+  /** Wszystkie plany ze wszystkich portfeli. */
+  allPlans: function () { return UI.state.portfolios.reduce(function (a, p) { return a.concat(p.plans || []); }, []); },
+
+  /** Dopisuje brakujące raty planów (we wszystkich portfelach). Rata powstaje, gdy jest notowanie z dnia planu lub późniejsze
+   *  i kurs waluty; daty z plan.skip (raty usunięte ręcznie) są pomijane. Zwraca liczbę dopisanych transakcji. */
+  applyPlans: function () {
+    var ctx = UI.ctx(), today = Util.todayISO(), added = 0;
+    UI.state.portfolios.forEach(function (p) {
+      (p.plans || []).forEach(function (pl) {
+        var rows = DataSource.getRows(pl.ticker); if (!rows) return;
+        var have = {};
+        p.transactions.forEach(function (t) { if (t.planId === pl.id) have[t.planDate] = true; });
+        var ccy = DataSource.currencyOf(pl.ticker) || 'PLN';
+        PortfolioEngine.planSchedule(pl, today).forEach(function (d) {
+          if (have[d] || pl.skip.indexOf(d) >= 0) return;
+          var q = PortfolioEngine.firstAt(rows, d);
+          if (!q || q.date > today) return;                       // brak jeszcze sesji – rata poczeka
+          var rate = PortfolioEngine.fxRate(ctx, ccy, q.date);
+          if (rate == null) return;                               // brak kursu – spróbujemy przy następnej synchronizacji
+          var qty = Math.round(pl.amount / rate / q.close * 1e4) / 1e4;
+          if (!(qty > 0)) return;
+          p.transactions.push({ id: Util.uid(), seq: UI.state.seq++, ticker: pl.ticker, type: 'BUY', date: q.date, qty: qty, price: q.close,
+            fee: Math.round(pl.fee / rate * 1e4) / 1e4, currency: ccy, planId: pl.id, planDate: d });
+          added++;
+        });
+      });
+    });
+    return added;
+  },
+
+  /** Dodanie planu z formularza: walidacja, pobranie notowań od daty startu, wygenerowanie rat. */
+  submitPlan: function () {
+    var $ = UI.$, msg = $('planMsg');
+    var pl = { id: Util.uid(), ticker: DataSource.resolveSymbol($('pTicker').value), amount: DataSource.parseNumber($('pAmount').value),
+      freq: $('pFreq').value, day: Math.min(31, Math.max(1, parseInt($('pDay').value, 10) || 1)), start: $('pStart').value,
+      end: $('pEnd').value || null, fee: $('pFee').value === '' ? 0 : DataSource.parseNumber($('pFee').value), skip: [] };
+    var err = [];
+    if (!pl.ticker || !Util.isSym(pl.ticker)) err.push('Podaj walor.');
+    if (!(pl.amount > 0)) err.push('Podaj kwotę raty.');
+    if (!Util.isISODate(pl.start)) err.push('Podaj datę początku.');
+    else if (pl.start < '2002-01-02') err.push('Plan może zaczynać się najwcześniej 2002-01-02 (kursy NBP).');
+    if (pl.end && pl.end < pl.start) err.push('Data końca jest wcześniejsza niż początek.');
+    if (!(pl.fee >= 0)) err.push('Prowizja nie może być ujemna.');
+    if (err.length) { msg.innerHTML = '<div class="notice err">' + err.map(UI.esc).join('<br>') + '</div>'; return; }
+    var p = UI.active();
+    p.plans = p.plans || [];
+    p.plans.push(pl);
+    msg.innerHTML = '<div class="notice">Pobieranie notowań i generowanie rat…</div>';
+    UI.save();
+    UI.ensureData([pl.ticker]).then(function () {
+      var n = p.transactions.filter(function (t) { return t.planId === pl.id; }).length;
+      var sched = PortfolioEngine.planSchedule(pl, pl.end || '9999-12-31').length;
+      msg.innerHTML = '<div class="notice ok">Dodano plan ' + UI.esc(pl.ticker) + ': ' + n + ' rat wykonanych' +
+        (pl.end ? ' z ' + sched + ' zaplanowanych' : '') + (DataSource.getRows(pl.ticker) ? '' : ' – brak notowań waloru, raty powstaną po ich wczytaniu') + '.</div>';
+      $('pAmount').value = '';
+    });
+  },
+
+  /** Usunięcie planu wraz z jego ratami (o ile nie psuje to późniejszych sprzedaży). */
+  deletePlan: function (id) {
+    var p = UI.active(), pl = (p.plans || []).filter(function (x) { return x.id === id; })[0]; if (!pl) return;
+    var rest = p.transactions.filter(function (t) { return t.planId !== id; });
+    var v = PortfolioEngine.validateSequence(rest);
+    if (!v.ok) { alert('Nie można usunąć planu: sprzedaż ' + v.tx.ticker + ' z ' + Fmt.date(v.tx.date) + ' straciłaby pokrycie w akcjach z tego planu.'); return; }
+    var n = p.transactions.length - rest.length;
+    if (!confirm('Usunąć plan ' + pl.ticker + ' i jego ' + n + ' rat (transakcji)?')) return;
+    p.transactions = rest;
+    p.plans = p.plans.filter(function (x) { return x.id !== id; });
+    UI.cancelEdit(); UI.save(); UI.renderAll();
+  },
+
+  /** Lista planów aktywnego portfela z podsumowaniem wykonania. */
+  renderPlans: function () {
+    var p = UI.active(), plans = p.plans || [], el = UI.$('planTable');
+    if (!plans.length) { el.innerHTML = ''; return; }
+    var fr = { M: 'co miesiąc', Q: 'co kwartał', W: 'co tydzień' }, today = Util.todayISO();
+    el.innerHTML = '<thead><tr><th class="left">Walor</th><th>Rata</th><th class="left">Harmonogram</th><th>Okres</th><th>Wykonane raty</th><th>Zainwestowano</th><th>Następna rata</th><th></th></tr></thead><tbody>' +
+      plans.map(function (pl) {
+        var txs = p.transactions.filter(function (t) { return t.planId === pl.id; }), ctx = UI.ctx();
+        var invested = txs.reduce(function (s, t) { var r = PortfolioEngine.txRate(t, ctx); return s + (t.qty * t.price + t.fee) * (r == null ? NaN : r); }, 0);
+        var have = {}; txs.forEach(function (t) { have[t.planDate] = true; });
+        var next = PortfolioEngine.planSchedule(pl, Util.addDays(today, 400)).filter(function (d) { return !have[d] && pl.skip.indexOf(d) < 0; })[0];
+        return '<tr><td class="left"><b>' + UI.esc(pl.ticker) + '</b><div class="name">' + UI.esc(DataSource.nameOf(pl.ticker)) + '</div></td>' +
+          '<td>' + Fmt.pln(pl.amount) + (pl.fee ? '<div class="muted small-text">+ prowizja ' + Fmt.pln(pl.fee) + '</div>' : '') + '</td>' +
+          '<td class="left">' + fr[pl.freq] + (pl.freq === 'W' ? '' : ', dzień ' + pl.day) + '</td>' +
+          '<td>' + Fmt.date(pl.start) + ' – ' + (pl.end ? Fmt.date(pl.end) : 'bezterminowo') + '</td>' +
+          '<td>' + txs.length + (pl.skip.length ? ' <span class="muted small-text">(' + pl.skip.length + ' usuniętych)</span>' : '') + '</td>' +
+          '<td>' + Fmt.pln(invested) + '</td>' +
+          '<td>' + (next ? Fmt.date(next) + (next <= today ? ' <span class="muted small-text">(czeka na notowania)</span>' : '') : '—') + '</td>' +
+          '<td><button class="link small danger" data-del-plan="' + UI.esc(pl.id) + '">Usuń plan</button></td></tr>';
+      }).join('') + '</tbody>';
   },
 
   /* ---------- renderowanie ---------- */
@@ -1772,6 +1947,7 @@ var UI = {
     UI.renderStatus();
     UI.renderPositions();
     UI.renderTxTable();
+    UI.renderPlans();
     UI.renderCharts();
     UI.updateTxHint();
     UI.renderSyncStatus();
@@ -1954,7 +2130,8 @@ var UI = {
       var info = Util.ccyInfo(t.currency), rate = PortfolioEngine.txRate(t, ctx);
       var rateTxt = info.code === 'PLN' ? '—' : (rate == null ? '<span class="warn-icon">brak</span>' : Fmt.price(rate / info.factor) + (t.fx > 0 ? ' <span class="tag" title="Kurs wpisany ręcznie">ręczny</span>' : ''));
       return '<tr class="' + (t.date > asOf ? 'future' : '') + '"><td>' + Fmt.date(t.date) + '</td><td class="left"><b>' + UI.esc(t.ticker) + '</b></td>' +
-        '<td class="left"><span class="tag ' + (t.type === 'BUY' ? 'buy">kupno' : 'sell">sprzedaż') + '</span></td>' +
+        '<td class="left"><span class="tag ' + (t.type === 'BUY' ? 'buy">kupno' : 'sell">sprzedaż') + '</span>' +
+        (t.planId ? ' <span class="tag" title="Rata planu regularnych zakupów">plan</span>' : '') + '</td>' +
         '<td>' + Fmt.num(t.qty) + '</td><td>' + Fmt.money(t.price, t.currency) + '</td><td>' + Fmt.money(t.fee, t.currency) + '</td>' +
         '<td>' + Fmt.money(t.qty * t.price, t.currency) + '</td><td>' + rateTxt + '</td>' +
         '<td><button class="link small" data-act="edit" data-id="' + UI.esc(t.id) + '">Edytuj</button>' +
@@ -2156,7 +2333,10 @@ var UI = {
     var rest = p.transactions.filter(function (x) { return x.id !== id; });
     var v = PortfolioEngine.validateSequence(rest);
     if (!v.ok) { alert('Nie można usunąć: późniejsza sprzedaż ' + v.tx.ticker + ' z ' + Fmt.date(v.tx.date) + ' przekroczyłaby posiadaną ilość. Najpierw usuń lub zmień tę sprzedaż.'); return; }
-    if (!confirm('Usunąć transakcję ' + (t.type === 'BUY' ? 'kupna' : 'sprzedaży') + ' ' + t.ticker + ' z ' + Fmt.date(t.date) + '?')) return;
+    if (!confirm('Usunąć transakcję ' + (t.type === 'BUY' ? 'kupna' : 'sprzedaży') + ' ' + t.ticker + ' z ' + Fmt.date(t.date) + '?' +
+      (t.planId ? '\n\nTo rata planu – nie zostanie wygenerowana ponownie.' : ''))) return;
+    // rata planu: zapamiętaj datę, żeby applyPlans jej nie odtworzył
+    if (t.planId) (p.plans || []).forEach(function (pl) { if (pl.id === t.planId && pl.skip.indexOf(t.planDate) < 0) pl.skip.push(t.planDate); });
     p.transactions = rest;
     if (UI.ui.editId === id) UI.cancelEdit();
     UI.save(); UI.renderAll();
@@ -2165,16 +2345,21 @@ var UI = {
   /** Usunięcie pozycji = wszystkich transakcji danego waloru w aktywnym portfelu (inne walory nie są naruszone). */
   deletePosition: function (ticker) {
     var p = UI.active(), n = p.transactions.filter(function (t) { return t.ticker === ticker; }).length;
-    if (!n || !confirm('Usunąć pozycję ' + ticker + ' – ' + n + ' ' + (n === 1 ? 'transakcję' : 'transakcje/transakcji') + ' z portfela „' + p.name + '”?')) return;
+    var np = (p.plans || []).filter(function (pl) { return pl.ticker === ticker; }).length;
+    if (!n || !confirm('Usunąć pozycję ' + ticker + ' – ' + n + ' ' + (n === 1 ? 'transakcję' : 'transakcje/transakcji') + ' z portfela „' + p.name + '”?' +
+      (np ? '\n\nUsunięte zostaną też plany regularnych zakupów tego waloru (' + np + ').' : ''))) return;
     p.transactions = p.transactions.filter(function (t) { return t.ticker !== ticker; });
+    p.plans = (p.plans || []).filter(function (pl) { return pl.ticker !== ticker; });   // inaczej plan odtworzyłby raty
     UI.cancelEdit(); UI.save(); UI.renderAll();
   },
 
   /** Usunięcie wszystkich transakcji aktywnego portfela (sam portfel zostaje). */
   clearTransactions: function () {
     var p = UI.active();
-    if (!p.transactions.length || !confirm('Usunąć wszystkie ' + p.transactions.length + ' transakcje z portfela „' + p.name + '”?')) return;
+    if (!p.transactions.length || !confirm('Usunąć wszystkie ' + p.transactions.length + ' transakcje z portfela „' + p.name + '”?' +
+      ((p.plans || []).length ? '\n\nUsunięte zostaną też plany regularnych zakupów (' + p.plans.length + ').' : ''))) return;
     p.transactions = [];
+    p.plans = [];
     UI.cancelEdit(); UI.save(); UI.renderAll();
   },
 
@@ -2481,6 +2666,25 @@ function runSelfTests() {
     var s = E.timeSeries([tx(1, 'AAPL', 'BUY', '2024-01-02', 10, 100, 0, { currency: 'USD' })], ctx, 'SPX', '2024-01-03');
     return near(s.value[1], 4400) === true && near(s.twr[1], 110) === true && near(s.bench[1], 110) === true ? true : JSON.stringify(s);
   });
+  // --- plany regularnych zakupów ---
+  t('Plan miesięczny: dzień 31 obcinany do końca miesiąca, koniec włącznie', function () {
+    var d = E.planSchedule({ freq: 'M', day: 31, start: '2024-01-15', end: '2024-04-30' }, '2030-01-01');
+    return d.join() === '2024-01-31,2024-02-29,2024-03-31,2024-04-30' ? true : d.join();
+  });
+  t('Plan miesięczny: dzień przed datą startu → pierwsza rata w kolejnym miesiącu; limit „until”', function () {
+    var d = E.planSchedule({ freq: 'M', day: 5, start: '2024-11-10', end: null }, '2025-02-04');
+    return d.join() === '2024-12-05,2025-01-05' ? true : d.join();
+  });
+  t('Plan kwartalny i tygodniowy', function () {
+    var q = E.planSchedule({ freq: 'Q', day: 1, start: '2024-01-01', end: '2024-12-31' }, '2030-01-01').join();
+    var w = E.planSchedule({ freq: 'W', day: 1, start: '2024-01-01', end: '2024-01-22' }, '2030-01-01').join();
+    return q === '2024-01-01,2024-04-01,2024-07-01,2024-10-01' && w === '2024-01-01,2024-01-08,2024-01-15,2024-01-22' ? true : q + ' | ' + w;
+  });
+  t('Wykonanie raty: pierwsza sesja w dniu planu lub po nim', function () {
+    var a = E.firstAt(rows, '2024-01-06'), b = E.firstAt(rows, '2024-01-04'), c = E.firstAt(rows, '2024-01-09');
+    return a.date === '2024-01-08' && b.date === '2024-01-04' && c === null ? true : JSON.stringify([a, b, c]);
+  });
+
   t('Maksymalne obsunięcie', function () {
     var d = E.maxDrawdown([100, 120, 90, 130, 65, 70]);
     return near(d.value, -0.5) === true && d.peakIdx === 3 && d.troughIdx === 4 ? true : JSON.stringify(d);
