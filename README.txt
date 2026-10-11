@@ -45,8 +45,11 @@ INFLACJA
 - Na wykresie „Stopa zwrotu vs benchmark” zielona linia pokazuje inflację w Polsce w tym samym
   okresie (100 = dzień pierwszej transakcji). Kafelki „Inflacja w okresie” i „Realna stopa zwrotu”
   mówią, ile portfel zarobił ponad wzrost cen.
-- Źródło: Eurostat, zharmonizowany wskaźnik cen konsumpcyjnych HICP dla Polski (miesięczny, od 1996 r.).
-  Różni się nieco od CPI publikowanego przez GUS (inny koszyk), zwykle o kilka dziesiątych punktu rocznie.
+- Inflacja jest SKUMULOWANA (tak jak stopa zwrotu portfela): roczne wskaźniki się mnożą, nie sumują.
+  Pod wykresem widać rozbicie na kolejne lata okresu (pełne lata: grudzień do grudnia, jak podaje GUS).
+  Przykład: start 12.10.2023 → 2023 (od 12.10): 0,9%, 2024: 4,7%, 2025: 2,4%, 2026 (do sie): 3,0% → łącznie 11,4%.
+- Źródło: oficjalny wskaźnik cen towarów i usług konsumpcyjnych (CPI) GUS, miesięcznie od 1982 r.
+  Gdy serwer GUS nie odpowiada – zapasowo Eurostat HICP (inny koszyk, zwykle niższy o 0,2–1 pkt proc. rocznie).
   Dane są publikowane z ok. miesięcznym opóźnieniem – ostatnie tygodnie liczone są wg ostatniego odczytu.
 
 GOTOWE PORTFELE I PLANY ZAKUPÓW
