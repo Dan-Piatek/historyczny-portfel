@@ -41,6 +41,14 @@ OD KIEDY SĄ DANE
 - Szablony i plany z wcześniejszą datą działają: walor jest kupowany w pierwszym dniu, w którym
   da się go wycenić, a raty sprzed tego dnia są pomijane (komunikat podaje, ile i dlaczego).
 
+INFLACJA
+- Na wykresie „Stopa zwrotu vs benchmark” zielona linia pokazuje inflację w Polsce w tym samym
+  okresie (100 = dzień pierwszej transakcji). Kafelki „Inflacja w okresie” i „Realna stopa zwrotu”
+  mówią, ile portfel zarobił ponad wzrost cen.
+- Źródło: Eurostat, zharmonizowany wskaźnik cen konsumpcyjnych HICP dla Polski (miesięczny, od 1996 r.).
+  Różni się nieco od CPI publikowanego przez GUS (inny koszyk), zwykle o kilka dziesiątych punktu rocznie.
+  Dane są publikowane z ok. miesięcznym opóźnieniem – ostatnie tygodnie liczone są wg ostatniego odczytu.
+
 GOTOWE PORTFELE I PLANY ZAKUPÓW
 - „Gotowy portfel z szablonu…” (panel Portfele): wybierz szablon branżowy lub strategię,
   datę i kwotę – aplikacja kupi składniki po cenach zamknięcia z tego dnia.

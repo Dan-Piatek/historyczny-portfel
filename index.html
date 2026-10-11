@@ -51,7 +51,7 @@
   --bg: #f4f4f2; --surface: #fcfcfb; --surface-2: #f0efec; --border: #dedcd7;
   --text: #0b0b0b; --text-2: #52514e; --text-3: #6f6d67;
   --accent: #2a78d6; --accent-text: #ffffff;
-  --s1: #2a78d6; --s2: #eb6834; --grid: #e9e8e4;
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --grid: #e9e8e4;
   --gain: #0a7a0a; --loss: #c22f2f;
   --warn-bg: #fff4d6; --warn-bd: #e0a100; --err-bg: #fde8e8; --err-bd: #d03b3b;
   --ok-bg: #e6f4e6; --ok-bd: #0ca30c;
@@ -65,7 +65,7 @@
     --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #36352f;
     --text: #f0efec; --text-2: #c3c2b7; --text-3: #9a998f;
     --accent: #3987e5; --accent-text: #ffffff;
-    --s1: #3987e5; --s2: #d95926; --grid: #2b2b28;
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #2b2b28;
     --gain: #57c957; --loss: #f07272;
     --warn-bg: #3a2f12; --warn-bd: #c98500; --err-bg: #3d1c1c; --err-bd: #e66767;
     --ok-bg: #173117; --ok-bd: #0ca30c;
@@ -78,7 +78,7 @@
   --bg: #121211; --surface: #1a1a19; --surface-2: #242422; --border: #36352f;
   --text: #f0efec; --text-2: #c3c2b7; --text-3: #9a998f;
   --accent: #3987e5; --accent-text: #ffffff;
-  --s1: #3987e5; --s2: #d95926; --grid: #2b2b28;
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --grid: #2b2b28;
   --gain: #57c957; --loss: #f07272;
   --warn-bg: #3a2f12; --warn-bd: #c98500; --err-bg: #3d1c1c; --err-bd: #e66767;
   --ok-bg: #173117; --ok-bd: #0ca30c;
@@ -474,6 +474,9 @@ var Config = {
   STORAGE_QUOTES_V1: 'gpwPortfolio.quotes.v1',
   STORAGE_FX: 'gpwPortfolio.fx.v2',
   STORAGE_MANIFEST: 'gpwPortfolio.manifest.v2',
+  STORAGE_MACRO: 'gpwPortfolio.macro.v1',          // inflacja (HICP Polska)
+  // Zapasowe źródło inflacji, gdy serwer danych nie odpowiada (Eurostat zwraca nagłówek CORS)
+  EUROSTAT_HICP_PL: 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_minr?format=JSON&geo=PL&coicop18=TOTAL&unit=I15&lang=EN',
   // Lustro danych (GitHub, gałąź "data"). Można zmienić w UI: „Adres serwera danych”.
   DEFAULT_DATA_URL: 'https://raw.githubusercontent.com/Dan-Piatek/historyczny-portfel/data/',
   FETCH_TIMEOUT_MS: 10000,
@@ -639,6 +642,8 @@ var DataSource = {
   quotes: {},
   /* fx[KOD] = { rows, origin: 'mirror'|'nbp'|'file', fetchedAt } – PLN za 1 jednostkę */
   fx: {},
+  /* macro.CPI_PL = { rows: [[iso, indeks HICP 2015=100]], origin: 'mirror'|'eurostat', session } – inflacja PL */
+  macro: {},
   /* manifest z lustra + metadane symboli */
   manifest: null, manifestAt: null, symbols: {}, mirrorError: null, syncing: false, lastSync: null,
   dataUrl: Config.DEFAULT_DATA_URL,
@@ -801,6 +806,11 @@ var DataSource = {
       var rows = DataSource.unpackRows(fx[c].d);
       if (rows.length) DataSource.fx[c] = { rows: rows, origin: fx[c].o, fetchedAt: fx[c].f, session: 'cache', trimmed: !!fx[c].tr };
     });
+    var mc = Storage.get(Config.STORAGE_MACRO) || {};
+    Object.keys(mc).forEach(function (k) {
+      var rows = DataSource.unpackRows(mc[k].d);
+      if (rows.length) DataSource.macro[k] = { rows: rows, origin: mc[k].o, session: 'cache' };
+    });
   },
   /** Zapis cache. Dane z lustra są przycinane do potrzebnego zakresu (można je pobrać ponownie). */
   saveCache: function (cutoff) {
@@ -823,7 +833,31 @@ var DataSource = {
     };
     var a = Storage.set(Config.STORAGE_QUOTES, pack(DataSource.quotes));
     var b = Storage.set(Config.STORAGE_FX, pack(DataSource.fx));
-    return a && b;
+    var c = Storage.set(Config.STORAGE_MACRO, pack(DataSource.macro));   // bez przycinania – ok. 370 miesięcy
+    return a && b && c;
+  },
+
+  /** Inflacja PL (HICP, indeks 2015=100, wartość miesiąca pod 15. dniem): lustro, a gdy niedostępne – Eurostat bezpośrednio. */
+  ensureMacro: function () {
+    var cur = DataSource.macro.CPI_PL, has = cur && cur.rows && cur.rows.length;
+    var mInfo = DataSource.manifest && DataSource.manifest.macro && DataSource.manifest.macro.CPI_PL;
+    if (mInfo && has && cur.rows[cur.rows.length - 1][0] >= mInfo[1]) return Promise.resolve(false);
+    if (!mInfo && has && cur.session !== 'cache') return Promise.resolve(false);   // już pobrane z Eurostatu w tej sesji
+    var fromMirror = mInfo
+      ? DataSource.getText(DataSource.dataUrl + 'macro/CPI_PL.csv?v=' + encodeURIComponent(DataSource.manifest.generated)).then(function (t) { return DataSource.parseCSV(t).rows; })
+      : Promise.reject(new Error('brak w manifeście'));
+    return fromMirror.then(function (rows) { return { rows: rows, origin: 'mirror' }; }, function () {
+      // JSON-stat: value[pozycja], dimension.time.category.index[miesiąc] = pozycja
+      return DataSource.getText(Config.EUROSTAT_HICP_PL).then(function (t) {
+        var j = JSON.parse(t), idx = j.dimension.time.category.index, rows = [];
+        Object.keys(idx).sort().forEach(function (m) { var v = j.value[idx[m]]; if (v != null && /^\d{4}-\d{2}$/.test(m)) rows.push([m + '-15', +v]); });
+        return { rows: rows, origin: 'eurostat' };
+      });
+    }).then(function (r) {
+      if (!r.rows.length) return false;
+      DataSource.macro.CPI_PL = { rows: r.rows, origin: r.origin, session: r.origin };
+      return true;
+    }).catch(function () { return false; });
   },
   /** Zapisuje w pamięci notowania symbolu z danego źródła ('mirror' | 'file'). */
   setQuotes: function (sym, rows, origin) {
@@ -1251,7 +1285,23 @@ var PortfolioEngine = {
       out.bench.push(bPLN != null && benchBase ? 100 * bPLN / benchBase : null);
     }
     out.maxDrawdown = PortfolioEngine.maxDrawdown(out.twr);
+    // Inflacja PL znormalizowana do 100 w dniu startu (indeks miesięczny interpolowany liniowo między miesiącami)
+    var cpiRows = ctx.cpi, cpiBase = PortfolioEngine.interpAt(cpiRows, start);
+    out.cpi = dates.map(function (d) { var v = PortfolioEngine.interpAt(cpiRows, d); return v != null && cpiBase ? 100 * v / cpiBase : null; });
+    out.cpiLastDate = cpiRows && cpiRows.length ? cpiRows[cpiRows.length - 1][0] : null;
     return out;
+  },
+
+  /** Wartość w dniu date interpolowana liniowo między sąsiednimi punktami (dane miesięczne, np. inflacja).
+   *  Przed pierwszym punktem → null; po ostatnim → ostatnia wartość (brak nowszych danych). */
+  interpAt: function (rows, date) {
+    if (!rows || !rows.length || date < rows[0][0]) return null;
+    var last = rows[rows.length - 1];
+    if (date >= last[0]) return last[1];
+    var lo = 0, hi = rows.length - 1;
+    while (hi - lo > 1) { var mid = (lo + hi) >> 1; if (rows[mid][0] <= date) lo = mid; else hi = mid; }
+    var a = rows[lo], b = rows[hi], span = Util.daysBetween(a[0], b[0]);
+    return span > 0 ? a[1] + (b[1] - a[1]) * Util.daysBetween(a[0], date) / span : a[1];
   }
 };
 
@@ -1566,7 +1616,8 @@ var UI = {
     Object.keys(prices).forEach(add);
     UI.allTransactions().forEach(function (t) { if (!ccy[t.ticker]) ccy[t.ticker] = t.currency || DataSource.currencyOf(t.ticker) || 'PLN'; });
     add(UI.state.settings.benchmark);
-    return { prices: prices, ccy: ccy, fx: fx };
+    var cpi = DataSource.macro.CPI_PL ? DataSource.macro.CPI_PL.rows : null;
+    return { prices: prices, ccy: ccy, fx: fx, cpi: cpi };
   },
   /** Symbole aktywnego portfela (posortowane) + benchmark – do panelu „Źródła danych”. */
   neededTickers: function () {
@@ -1838,7 +1889,8 @@ var UI = {
       });
       all.forEach(function (t) { var c = Util.ccyInfo(t.currency).code; if (c !== 'PLN') { codes[c] = true; if (!ccyFrom[c] || t.date < ccyFrom[c]) ccyFrom[c] = t.date; } });
       // 10 dni zapasu przed datą – transakcja w dzień bez tabeli NBP używa kursu z dnia wcześniejszego
-      return Promise.all(Object.keys(codes).map(function (c) { return DataSource.ensureFx(c, ccyFrom[c] ? Util.addDays(ccyFrom[c], -10) : null); }))
+      return Promise.all(Object.keys(codes).map(function (c) { return DataSource.ensureFx(c, ccyFrom[c] ? Util.addDays(ccyFrom[c], -10) : null); })
+        .concat([DataSource.ensureMacro()]))   // inflacja PL do porównania na wykresie
         .then(function (r2) { return r1.concat(r2).some(Boolean); });
     }).then(function (changed) {
       if (changed) { DataSource.saveCache(UI.cacheCutoff()); }
@@ -2013,6 +2065,24 @@ var UI = {
   },
 
   /** Kafelki podsumowania (wartość, kapitał, zysk, stopy zwrotu, obsunięcie, prowizje). */
+  /** Kafelki „Inflacja w okresie” i „Realna stopa zwrotu” (TWR skorygowany o inflację: (1+TWR)/(1+inflacja) − 1).
+   *  k – funkcja budująca kafelek z renderKpis. */
+  inflationKpis: function (k) {
+    var S = UI.series;
+    var i = S && S.cpi ? S.cpi.length - 1 : -1;
+    while (i >= 0 && S.cpi[i] == null) i--;
+    if (i < 0) return k('Inflacja w okresie', '—', 'brak danych o inflacji', '');
+    var from = S.dates[0], to = S.dates[S.dates.length - 1], years = Util.daysBetween(from, to) / 365;
+    var infl = S.cpi[S.cpi.length - 1] / 100 - 1, twr = S.twr[S.twr.length - 1] / 100 - 1;
+    var real = (1 + twr) / (1 + infl) - 1;
+    var annual = years >= 1 ? Math.pow(1 + infl, 1 / years) - 1 : null;
+    var stale = S.cpiLastDate && S.cpiLastDate < to ? ' · dane do ' + Fmt.monthYear(Util.dateMs(S.cpiLastDate)) : '';
+    return k('Inflacja w okresie', Fmt.pct(infl), 'od ' + Fmt.date(from) + (annual != null ? ', śr. ' + Fmt.pct(annual) + ' rocznie' : '') + stale, '',
+        'Zmiana wskaźnika cen konsumpcyjnych HICP dla Polski (Eurostat) od dnia pierwszej transakcji do dnia wyceny') +
+      k('Realna stopa zwrotu', Fmt.pct(real), 'TWR ' + Fmt.pct(twr) + ' po odjęciu inflacji', Fmt.cls(real),
+        'Siła nabywcza portfela: (1 + stopa zwrotu TWR) / (1 + inflacja) − 1');
+  },
+
   renderKpis: function () {
     var T = UI.calc.totals, el = UI.$('kpis');
     if (UI.calcError) { el.innerHTML = '<div class="notice err">' + UI.esc(UI.calcError) + '</div>'; return; }
@@ -2036,6 +2106,7 @@ var UI = {
       k('Zysk całkowity', Fmt.plnSigned(T.totalPL), 'zrealiz. ' + Fmt.plnSigned(T.realized) + ' · niezrealiz. ' + Fmt.plnSigned(T.unrealized), Fmt.cls(T.totalPL), 'W PLN, łącznie z efektem kursowym') +
       k('Stopa zwrotu prosta', Fmt.pct(T.simpleReturn), 'zysk / wpłacony kapitał', Fmt.cls(T.simpleReturn)) +
       k('XIRR (roczna)', Fmt.pct(T.xirr), 'uwzględnia daty przepływów', Fmt.cls(T.xirr), 'Wewnętrzna stopa zwrotu dla nieregularnych przepływów, rok = 365 dni') +
+      UI.inflationKpis(k) +
       k('Maks. obsunięcie', dd ? Fmt.pct(dd.value) : '—', ddSub, dd && dd.value < -0.00005 ? 'loss' : '', 'Na indeksie stopy zwrotu ważonej czasem (TWR) – wpłaty i wypłaty go nie zniekształcają') +
       k('Prowizje', Fmt.pln(T.fees), '', '');
   },
@@ -2179,6 +2250,9 @@ var UI = {
       { label: 'Portfel (TWR)', values: S ? S.twr : [], color: '--s1' },
       { label: bl + (hasBench ? '' : ' – brak danych'), values: S ? S.bench : [], color: '--s2', dash: true }
     ];
+    var hasCpi = S && S.cpi && S.cpi.some(function (v) { return v != null; });
+    sr.push({ label: 'Inflacja PL (HICP)' + (hasCpi ? (S.cpiLastDate < S.dates[S.dates.length - 1] ? ', dane do ' + Fmt.monthYear(Util.dateMs(S.cpiLastDate)) : '') : ' – brak danych'),
+      values: S && S.cpi ? S.cpi : [], color: '--s3', dash: true });
     Charts.legend(UI.$('legendReturn'), sr);
     Charts.draw(UI.$('chartReturn'), {
       dates: S ? S.dates : [], series: sr, refLine: 100,
@@ -2694,6 +2768,19 @@ function runSelfTests() {
     var s = E.timeSeries([tx(1, 'AAPL', 'BUY', '2024-01-02', 10, 100, 0, { currency: 'USD' })], ctx, 'SPX', '2024-01-03');
     return near(s.value[1], 4400) === true && near(s.twr[1], 110) === true && near(s.bench[1], 110) === true ? true : JSON.stringify(s);
   });
+  // --- inflacja ---
+  t('Inflacja: interpolacja liniowa między miesiącami, po ostatnim punkcie – ostatnia wartość', function () {
+    var cpi = [['2024-01-15', 100], ['2024-02-15', 103.1]];   // 31 dni
+    var a = near(E.interpAt(cpi, '2024-01-25'), 101, 1e-9); if (a !== true) return a;
+    return E.interpAt(cpi, '2024-01-01') === null && E.interpAt(cpi, '2024-05-01') === 103.1 ? true : 'błąd brzegów';
+  });
+  t('Inflacja w szeregu czasowym: 100 w dniu startu', function () {
+    var ctx = pln({ Q: [['2024-01-15', 10], ['2024-02-15', 10]] });
+    ctx.cpi = [['2024-01-15', 100], ['2024-02-15', 102]];
+    var s = E.timeSeries([tx(1, 'Q', 'BUY', '2024-01-15', 1, 10)], ctx, null, '2024-02-15');
+    return near(s.cpi[0], 100) === true && near(s.cpi[1], 102) === true ? true : JSON.stringify(s.cpi);
+  });
+
   // --- plany regularnych zakupów ---
   t('Plan miesięczny: dzień 31 obcinany do końca miesiąca, koniec włącznie', function () {
     var d = E.planSchedule({ freq: 'M', day: 31, start: '2024-01-15', end: '2024-04-30' }, '2030-01-01');

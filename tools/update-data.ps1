@@ -246,6 +246,35 @@ foreach ($code in $codes) {
 }
 Write-Host "Waluty: $($fxInfo.Keys -join ', ')"
 
+# ---------------------------------------------------------------- inflacja (Eurostat HICP, Polska)
+# Zharmonizowany wskaźnik cen konsumpcyjnych (HICP), indeks 2015=100, dane miesięczne od 1996 r.
+# Zbiór prc_hicp_minr (ECOICOP ver.2, od 2026 r.; stary prc_hicp_midx kończy się na 12.2025).
+# Oficjalny CPI GUS byłby lepszy, ale jego publiczny plik CSV nie jest aktualizowany na bieżąco.
+# Wartość miesiąca (średnia z miesiąca) zapisujemy pod 15. dniem – aplikacja interpoluje liniowo między miesiącami.
+$macroInfo = [ordered]@{}
+New-Item -ItemType Directory -Force -Path (Join-Path $Out 'macro') | Out-Null
+$cpiPath = Join-Path (Join-Path $Out 'macro') 'CPI_PL.csv'
+try {
+  $r = Invoke-Get 'https://ec.europa.eu/eurostat/api/dissemination/statistics/1.0/data/prc_hicp_minr?format=JSON&geo=PL&coicop18=TOTAL&unit=I15&lang=EN'
+  if ($r.status -ne 200) { throw "HTTP $($r.status)" }
+  $j = $r.body | ConvertFrom-Json   # ok. 20 kB – mieści się w limicie ConvertFrom-Json
+  # JSON-stat: "value" to słownik pozycja → wartość, "dimension.time.category.index" to miesiąc → pozycja
+  $cpi = New-Object 'System.Collections.Generic.SortedDictionary[string,string]'
+  foreach ($t in $j.dimension.time.category.index.PSObject.Properties) {
+    $v = $j.value.PSObject.Properties[[string]$t.Value]
+    if ($v -and $t.Name -match '^\d{4}-\d{2}$') { $cpi[$t.Name + '-15'] = ([double]$v.Value).ToString('0.###', $Inv) }
+  }
+  if ($cpi.Count -lt 100) { throw "za mało danych ($($cpi.Count) miesięcy)" }
+  Write-Series $cpiPath $cpi
+} catch { $errors += [ordered]@{ symbol = 'CPI_PL'; error = $_.Exception.Message }; Write-Host "  ! CPI_PL: $($_.Exception.Message)" }
+# Przy błędzie zostaje plik z poprzedniego przebiegu
+$cpiOld = Read-Series $cpiPath
+if ($cpiOld.Count) {
+  $first = $null; $lastNew = $null; foreach ($k in $cpiOld.Keys) { if (-not $first) { $first = $k }; $lastNew = $k }
+  $macroInfo['CPI_PL'] = @($first, $lastNew)
+  Write-Host "Inflacja PL (HICP): $first – $lastNew"
+}
+
 # ---------------------------------------------------------------- manifest
 # Do manifestu trafiają tylko symbole, dla których istnieje plik z notowaniami
 $sortedMeta = [ordered]@{}
@@ -267,6 +296,7 @@ $manifest = [ordered]@{
   fields = @('symbol','name','market','type','currency','first','last','lastClose','indexes')   # kolejność kolumn w "symbols"
   symbols = @($list)
   fx = $fxInfo   # KOD → [pierwsza data, ostatnia data]
+  macro = $macroInfo   # dane makro (CPI_PL – inflacja HICP) → [pierwsza data, ostatnia data]
 }
 Write-Utf8 (Join-Path $Out 'index.json') ($manifest | ConvertTo-Json -Depth 5 -Compress)
 # status.json – podsumowanie przebiegu do diagnostyki (lista błędów per symbol)
