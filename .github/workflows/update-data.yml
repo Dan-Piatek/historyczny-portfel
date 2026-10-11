@@ -8,6 +8,9 @@ on:
       limit:
         description: 'Tylko pierwsze N symboli (0 = wszystkie)'
         default: '0'
+      universe:
+        description: 'Plik z listą walorów'
+        default: 'config/universe.csv'
 
 permissions:
   contents: write
@@ -34,7 +37,7 @@ jobs:
 
       - name: Aktualizuj notowania i kursy walut
         shell: powershell
-        run: ./tools/update-data.ps1 -Universe config/universe.csv -Out out -Limit ${{ github.event.inputs.limit || 0 }}
+        run: ./tools/update-data.ps1 -Universe "${{ github.event.inputs.universe || 'config/universe.csv' }}"-Out out -Limit ${{ github.event.inputs.limit || 0 }}
 
       - name: Opublikuj galaz data (jeden commit, bez historii)
         shell: powershell

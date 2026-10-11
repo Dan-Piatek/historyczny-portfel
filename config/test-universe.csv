@@ -1,0 +1,9 @@
+symbol,name,market,type,indexes
+"PKN.WA","Orlen","PL","EQUITY","WIG20"
+"WIG20.WA","WIG20","PL","INDEX",""
+"^GSPC","S&P 500","US","INDEX",""
+"VOD.L","Vodafone","UK","EQUITY","FTSE100"
+"7203.T","Toyota","JP","EQUITY","N225"
+"ERIC-B.ST","Ericsson B","SE","EQUITY","OMXS30"
+"BRK-B","Berkshire Hathaway B","US","EQUITY","SP500"
+"XXXX.ZZ","Nie istnieje","PL","EQUITY",""
