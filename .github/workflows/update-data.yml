@@ -31,9 +31,16 @@ jobs:
       - name: Pobierz poprzednie dane (galaz data)
         shell: powershell
         run: |
-          git clone --depth 1 --branch data "https://github.com/${{ github.repository }}.git" out 2>$null
+          $ErrorActionPreference = 'Continue'   # git pisze komunikaty na stderr – to nie są błędy
+          $repo = "https://github.com/${{ github.repository }}.git"
+          git ls-remote --exit-code --heads $repo data *> $null
+          if ($LASTEXITCODE -eq 0) {
+            git clone -q --depth 1 --branch data $repo out *> $null
+            if ($LASTEXITCODE -ne 0) { Write-Error 'Nie udało się pobrać gałęzi data'; exit 1 }
+          } else { Write-Host 'Gałąź data jeszcze nie istnieje – pierwsze pobranie.' }
           if (-not (Test-Path out)) { New-Item -ItemType Directory out | Out-Null }
           if (Test-Path out\.git) { Remove-Item -Recurse -Force out\.git }
+          exit 0
 
       - name: Aktualizuj notowania i kursy walut
         shell: powershell
@@ -42,6 +49,7 @@ jobs:
       - name: Opublikuj galaz data (jeden commit, bez historii)
         shell: powershell
         run: |
+          $ErrorActionPreference = 'Continue'
           Set-Location out
           "* -text" | Out-File -Encoding ascii .gitattributes
           git init -q
