@@ -1,0 +1,11 @@
+{
+    "finished":  "2026-11-14T02:37:40Z",
+    "ok":  139,
+    "failed":  1,
+    "errors":  [
+                   {
+                       "symbol":  "CPI_PL (GUS)",
+                       "error":  "nie znaleziono linku do CSV na stronie GUS"
+                   }
+               ]
+}
