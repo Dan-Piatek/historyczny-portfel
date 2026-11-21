@@ -1,0 +1,15 @@
+{
+    "finished":  "2026-11-21T03:24:58Z",
+    "ok":  139,
+    "failed":  2,
+    "errors":  [
+                   {
+                       "symbol":  "FX:CHF",
+                       "error":  "The remote server returned an error: (500) Internal Server Error."
+                   },
+                   {
+                       "symbol":  "CPI_PL (GUS)",
+                       "error":  "nie znaleziono linku do CSV na stronie GUS"
+                   }
+               ]
+}
